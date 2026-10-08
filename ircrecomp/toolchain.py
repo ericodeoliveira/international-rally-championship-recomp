@@ -149,7 +149,7 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
         jobs_list.append((src, obj_dir / f"gen_{src.stem}.o", ["-w"]))
     flac_src = ROOT / "tools" / "flacenc" / "flacenc.c"
     jobs_list.append((flac_src, obj_dir / "flacenc.o", ["-w"]))
-    total = len(jobs_list) + 2
+    total = len(jobs_list) + 3
 
     env = dict(os.environ)
     env["PATH"] = str(tc / "bin") + os.pathsep + env.get("PATH", "")
@@ -178,15 +178,23 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
         log("\n\n".join(errors)[:20000])
         sys.exit("compilation failed")
 
+    # UTF-8 as the process code page (runtime/utf8.manifest), so paths with accents work
+    res = obj_dir / "utf8_res.o"
+    err = run([str(tc / "bin" / "x86_64-w64-mingw32-windres.exe"), "-I", str(ROOT / "runtime"),
+               str(ROOT / "runtime" / "utf8.rc"), "-o", str(res)], "Building resource utf8.rc")
+    if err:
+        log(err[:20000])
+        sys.exit("compilation failed")
+
     exe = build_dir / "IRC.exe"
-    objs = [str(o) for _s, o, _x in jobs_list if o.name != "flacenc.o"]
+    objs = [str(o) for _s, o, _x in jobs_list if o.name != "flacenc.o"] + [str(res)]
     link = [clang, f"--target={TARGET}", "-mwindows", "-static", "-o", str(exe)] + objs + \
            [str(sdl_lib / "SDL3.lib")]
     rsp = build_dir / "link.rsp"                     # keeps the long object list off the command line
     rsp.write_text(" ".join('"' + a.replace("\\", "/") + '"' for a in link[1:]), encoding="utf-8")
     err = run([clang, f"@{rsp}"], "Linking C executable IRC.exe")
     err = err or run([clang, f"--target={TARGET}", "-static", "-o", str(build_dir / "irc_flacenc.exe"),
-                      str(obj_dir / "flacenc.o")], "Linking C executable irc_flacenc.exe")
+                      str(obj_dir / "flacenc.o"), str(res)], "Linking C executable irc_flacenc.exe")
     if err:
         log(err[:20000])
         sys.exit("compilation failed")

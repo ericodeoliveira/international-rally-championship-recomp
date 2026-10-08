@@ -1,0 +1,2 @@
+// Embeds utf8.manifest (RT_MANIFEST, id 1) for compilers that do not merge manifests themselves.
+1 24 "utf8.manifest"

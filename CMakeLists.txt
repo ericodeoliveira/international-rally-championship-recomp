@@ -45,6 +45,17 @@ endif()
 
 # Lossless FLAC encoder for the CD music (used by the ircrecomp pipeline, verified bit-exact)
 add_executable(irc_flacenc ${CMAKE_SOURCE_DIR}/tools/flacenc/flacenc.c)
+
+# UTF-8 as the process code page, so paths with accents work with fopen/stat/mkdir
+if(WIN32)
+    if(MSVC)
+        set(IRC_UTF8_RES ${CMAKE_SOURCE_DIR}/runtime/utf8.manifest)   # merged by the MSVC linker
+    else()
+        set(IRC_UTF8_RES ${CMAKE_SOURCE_DIR}/runtime/utf8.rc)
+    endif()
+    target_sources(irc PRIVATE ${IRC_UTF8_RES})
+    target_sources(irc_flacenc PRIVATE ${IRC_UTF8_RES})
+endif()
 target_include_directories(irc_flacenc PRIVATE ${CMAKE_SOURCE_DIR}/third_party/dr_libs)
 if(MSVC)
     target_compile_options(irc_flacenc PRIVATE /O2 /W3 /wd4996 /wd4267)
