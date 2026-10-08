@@ -21,5 +21,6 @@ extracted/
 International_Rally_Championship_Patch/
 tests/*/gen/
 
-# downloaded on demand by ircrecomp (official SDL3 release)
+# downloaded on demand by ircrecomp (official SDL3 and llvm-mingw releases)
 third_party/SDL3-*/
+third_party/llvm-mingw-*
