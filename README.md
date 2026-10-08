@@ -22,13 +22,28 @@ C portável e o liga a um runtime novo que reimplementa as APIs do Windows 98 / 
 [SDL3](https://libsdl.org). O código do jogo **não é distribuído**: o C é gerado na máquina de quem
 tem o CD.
 
+### Download
+
+Baixe **`IRC-Recompilador.exe`** na página
+[**Releases**](https://github.com/ericodeoliveira/international-rally-championship-recomp/releases/latest)
+(~14 MB, um arquivo só: não precisa instalar Python nem nada). Abra, escolha a imagem do CD e clique
+em **Recompilar o jogo**. O jogo fica em `Games\International Rally Championship` na sua pasta de
+usuário (dá para mudar).
+
+- Como o executável não tem assinatura digital, o Windows SmartScreen pode avisar na primeira vez:
+  clique em **Mais informações › Executar assim mesmo**.
+- O compilador e o SDL3 (~420 MB) são baixados na primeira recompilação e ficam em
+  `%LOCALAPPDATA%\IRC Recompilador`, junto com as configurações da janela.
+- O `.exe` não contém nada do jogo; ele é gerado por [`tools/make_release.py`](tools/make_release.py).
+
 ### Requisitos
 
-- Windows 10/11 64 bits (testado no Windows 11), Python 3.10+ e a imagem do CD (`.cue` + `.bin`).
+- Windows 10/11 64 bits (testado no Windows 11) e a imagem do CD (`.cue` + `.bin`). Para rodar pelo
+  código-fonte em vez do `.exe`: Python 3.10+.
 - Nada de Visual Studio: na primeira recompilação o compilador C
   ([llvm-mingw](https://github.com/mstorsjo/llvm-mingw), clang + lld, ~180 MB) e o SDL3 são baixados
-  automaticamente das páginas oficiais, com versão fixa e SHA-256 conferido, e ficam em
-  `third_party\`. Se o Visual Studio Build Tools (C++) estiver instalado e o clang ainda não, ele é
+  automaticamente das páginas oficiais, com versão fixa e SHA-256 conferido, e ficam guardados para
+  as próximas vezes. Se o Visual Studio Build Tools (C++) estiver instalado e o clang ainda não, ele é
   usado. Para escolher: `--compiler clang|msvc` ou a variável `IRC_COMPILER`.
 - ~2,5 GB livres na primeira recompilação (compilador incluído); o jogo instalado ocupa ~370 MB.
 
@@ -36,7 +51,8 @@ tem o CD.
 
 #### Com janela (recomendado)
 
-Dê dois cliques em **`IRC Recompilador.bat`** (na primeira vez ele prepara o ambiente Python sozinho):
+Abra o **`IRC-Recompilador.exe`** — ou, pelo código-fonte, dê dois cliques em **`IRC Recompilador.bat`**
+(na primeira vez ele prepara o ambiente Python sozinho):
 
 1. **Escolher…** a imagem do CD (`.cue`; se escolher o `.bin`, o `.cue` ao lado é usado) e a pasta
    de instalação (pode ter acentos).
@@ -184,13 +200,28 @@ portable C and links it with a new runtime that reimplements the Windows 98 / Di
 of [SDL3](https://libsdl.org). The game's code is **not distributed**: the C is generated on the
 machine of whoever owns the CD.
 
+### Download
+
+Get **`IRC-Recompilador.exe`** from the
+[**Releases**](https://github.com/ericodeoliveira/international-rally-championship-recomp/releases/latest)
+page (~14 MB, a single file: no Python or anything else to install). Open it, choose the CD image and
+click **Recompile the game**. The game goes to `Games\International Rally Championship` in your user
+folder (you can change it).
+
+- The executable is not digitally signed, so Windows SmartScreen may warn the first time: click
+  **More info › Run anyway**.
+- The compiler and SDL3 (~420 MB) are downloaded on the first recompile and kept in
+  `%LOCALAPPDATA%\IRC Recompilador`, together with the window's settings.
+- The `.exe` contains nothing from the game; it is built by [`tools/make_release.py`](tools/make_release.py).
+
 ### Requirements
 
-- Windows 10/11 64-bit (tested on Windows 11), Python 3.10+ and the CD image (`.cue` + `.bin`).
+- Windows 10/11 64-bit (tested on Windows 11) and the CD image (`.cue` + `.bin`). To run from the
+  source code instead of the `.exe`: Python 3.10+.
 - No Visual Studio needed: on the first recompile the C compiler
   ([llvm-mingw](https://github.com/mstorsjo/llvm-mingw), clang + lld, ~180 MB) and SDL3 are downloaded
-  automatically from their official pages, with pinned versions and verified SHA-256, and kept in
-  `third_party\`. If Visual Studio Build Tools (C++) is installed and clang is not there yet, it is
+  automatically from their official pages, with pinned versions and verified SHA-256, and kept for
+  next time. If Visual Studio Build Tools (C++) is installed and clang is not there yet, it is
   used instead. To choose: `--compiler clang|msvc` or the `IRC_COMPILER` variable.
 - ~2.5 GB free on the first recompile (compiler included); the installed game takes ~370 MB.
 
@@ -198,7 +229,8 @@ machine of whoever owns the CD.
 
 #### With the window (recommended)
 
-Double-click **`IRC Recompilador.bat`** (the first time, it sets up the Python environment itself):
+Open **`IRC-Recompilador.exe`** — or, from the source code, double-click **`IRC Recompilador.bat`**
+(the first time, it sets up the Python environment itself):
 
 1. **Browse…** for the CD image (`.cue`; if you pick the `.bin`, the `.cue` next to it is used) and the
    install folder (accented characters are fine).

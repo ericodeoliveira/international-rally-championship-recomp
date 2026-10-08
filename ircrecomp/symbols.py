@@ -4,7 +4,9 @@ from pathlib import Path
 
 from capstone.x86 import X86_OP_IMM, X86_OP_MEM
 
-DEFAULT_SYMBOLS = Path(__file__).resolve().parent.parent / "symbols" / "ral481.sym"
+from .paths import SRC
+
+DEFAULT_SYMBOLS = SRC / "symbols" / "ral481.sym"
 
 
 def load_symbols(path=DEFAULT_SYMBOLS):

@@ -1,16 +1,17 @@
 """Game artwork for the recompiler window, made from the player's own copy of the game.
 
 Sources (first that works): the installed game folder, or the CD image itself. The images
-are converted to PNG once and cached in build/ui_assets; nothing from the game ships with
-the tool."""
+are converted to PNG once and cached (build/ui_assets, or the user's data folder for the
+packaged .exe); nothing from the game ships with the tool."""
 import struct
 import zlib
 from pathlib import Path
 
 from .cdimage import CDImage
 
-ROOT = Path(__file__).resolve().parent.parent
-CACHE = ROOT / "build" / "ui_assets"
+from .paths import CACHE as _CACHE
+
+CACHE = _CACHE / "ui_assets"
 PHOTO_W, PHOTO_H = 556, 297
 VERSION = "8"
 LOGO_PAD = 22          # room around the logo for its drop shadow

@@ -25,8 +25,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import i18n, installcheck
 
-ROOT = Path(__file__).resolve().parent.parent
-STATE_FILE = ROOT / "ircrecomp_gui.json"
+from .paths import DATA, FROZEN, STATE_FILE, cue_search_dirs, default_out, self_command
+
 N_STEPS = 5
 NO_WINDOW = 0x08000000 if platform.system() == "Windows" else 0
 
@@ -46,13 +46,6 @@ GREEN = "#3ee070"
 SHADOW = "#1a0428"
 HEADER_H = 184
 MARGIN = 16
-
-
-def console_python():
-    """python.exe next to the running interpreter (pythonw has no stdout)."""
-    exe = Path(sys.executable)
-    cand = exe.with_name("python.exe" if platform.system() == "Windows" else "python3")
-    return str(cand if cand.exists() else exe)
 
 
 # ------------------------------------------------------------- ini helpers
@@ -251,6 +244,11 @@ class App(tk.Tk):
         self.texts = []                 # (widget, função que devolve o texto no idioma atual)
         self.status_msg = ("st_choose", {}, WHITE)
         self.title(self.T("title"))
+        if FROZEN and platform.system() == "Windows":
+            try:
+                self.iconbitmap(default=sys.executable)   # the flag icon of IRC-Recompilador.exe
+            except tk.TclError:
+                pass
         self.minsize(780, 720)
         self.geometry("920x820")
         self.configure(bg=NAVY)
@@ -280,7 +278,7 @@ class App(tk.Tk):
         paths = tk.Frame(body, bg=NAVY)
         paths.pack(fill="x", pady=(2, 4))
         self.cue = tk.StringVar(value=self.state_data.get("cue", str(self.guess_cue() or "")))
-        self.out = tk.StringVar(value=self.state_data.get("out", str(ROOT / "dist" / "IRC")))
+        self.out = tk.StringVar(value=self.state_data.get("out", str(default_out())))
         self.path_row(paths, "lbl_cue", self.cue, self.pick_cue, 0)
         self.path_row(paths, "lbl_out", self.out, self.pick_out, 1)
         paths.columnconfigure(1, weight=1)
@@ -512,13 +510,17 @@ class App(tk.Tk):
 
     def save_state(self):
         try:
+            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             STATE_FILE.write_text(json.dumps({"cue": self.cue.get(), "out": self.out.get(), "lang": self.lang}, indent=1), encoding="utf-8")
         except OSError:
             pass
 
     def guess_cue(self):
-        found = sorted(ROOT.glob("*.cue"))
-        return found[0] if found else None
+        for folder in cue_search_dirs():
+            found = sorted(folder.glob("*.cue")) if folder.is_dir() else []
+            if found:
+                return found[0]
+        return None
 
     def game_exe(self):
         out = Path(self.out.get())
@@ -572,7 +574,10 @@ class App(tk.Tk):
         else:
             ok = shutil.which("cmake") and (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang"))
             checks.append((bool(ok), "req_tools", {}, None))
-        free = shutil.disk_usage(ROOT).free / 2**30
+        target = Path(self.out.get() or default_out())
+        while not target.exists() and target.parent != target:
+            target = target.parent
+        free = shutil.disk_usage(target).free / 2**30
         checks.append((free > need_gb, disk_key, {"gb": free}, None))
         self.req_checks = checks
         self.req_ok = all(c[0] for c in checks)
@@ -595,7 +600,7 @@ class App(tk.Tk):
     def pick_cue(self):
         p = filedialog.askopenfilename(title=self.T("dlg_cue"),
                                        filetypes=[(self.T("ft_cue"), "*.cue"), (self.T("ft_bin"), "*.bin"), (self.T("ft_all"), "*.*")],
-                                       initialdir=str(Path(self.cue.get()).parent if self.cue.get() else ROOT))
+                                       initialdir=str(Path(self.cue.get()).parent if self.cue.get() else Path.home()))
         if not p:
             return
         path = Path(p)
@@ -611,7 +616,7 @@ class App(tk.Tk):
         self.cue.set(str(path))
 
     def pick_out(self):
-        p = filedialog.askdirectory(title=self.T("dlg_out"), initialdir=self.out.get() or str(ROOT))
+        p = filedialog.askdirectory(title=self.T("dlg_out"), initialdir=self.out.get() or str(Path.home()))
         if p:
             self.out.set(str(Path(p)))
 
@@ -631,9 +636,10 @@ class App(tk.Tk):
         self.progress["value"] = 0
         self.mark_step(0)
         self.set_status("st_start", YELLOW)
-        cmd = [console_python(), "-u", "-m", "ircrecomp", "build", str(cue), "--out", self.out.get()]
+        cmd = self_command("build", str(cue), "--out", self.out.get())
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        self.proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        DATA.mkdir(parents=True, exist_ok=True)
+        self.proc = subprocess.Popen(cmd, cwd=str(DATA), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, env=env, creationflags=NO_WINDOW)
         self.refresh()
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()

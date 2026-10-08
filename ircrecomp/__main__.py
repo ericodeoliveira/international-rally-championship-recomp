@@ -18,7 +18,9 @@ from pathlib import Path
 
 from .parallel import available_cpus, physical_cpus, workers
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import RUNTIME, SRC, THIRD, VENDOR
+
+ROOT = SRC
 SDL_VERSION = "3.4.16"
 SDL_VC_SHA256 = "1a784cb2a5c64d56fe7a62090fe9d242d9865f235e4ea9678f1a6ba4e693e7de"
 KNOWN_EXES = {
@@ -93,17 +95,17 @@ def msvc_tool(name, env):
 
 
 def ensure_sdl_windows():
-    sdl = ROOT / "third_party" / f"SDL3-{SDL_VERSION}"
+    sdl = THIRD / f"SDL3-{SDL_VERSION}"
     if (sdl / "cmake" / "SDL3Config.cmake").exists():
         return sdl
     from .toolchain import download
     url = f"https://github.com/libsdl-org/SDL/releases/download/release-{SDL_VERSION}/SDL3-devel-{SDL_VERSION}-VC.zip"
     log(f"downloading SDL3 {SDL_VERSION} (official release) ...")
-    (ROOT / "third_party").mkdir(exist_ok=True)
-    zpath = ROOT / "third_party" / f"SDL3-devel-{SDL_VERSION}-VC.zip"
+    THIRD.mkdir(parents=True, exist_ok=True)
+    zpath = THIRD / f"SDL3-devel-{SDL_VERSION}-VC.zip"
     download(url, zpath, SDL_VC_SHA256, log, "SDL3")
     with zipfile.ZipFile(zpath) as z:
-        z.extractall(ROOT / "third_party")
+        z.extractall(THIRD)
     zpath.unlink()
     return sdl
 
@@ -126,7 +128,7 @@ def build_flac_encoder(out_dir, compiler="auto"):
     compressed while RAL.EXE is being translated and compiled."""
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    src, inc = ROOT / "tools" / "flacenc" / "flacenc.c", ROOT / "third_party" / "dr_libs"
+    src, inc = SRC / "tools" / "flacenc" / "flacenc.c", VENDOR / "dr_libs"
     if platform.system() == "Windows":
         if windows_compiler(compiler) == "clang":
             from .toolchain import clang_flacenc
@@ -135,7 +137,7 @@ def build_flac_encoder(out_dir, compiler="auto"):
         exe = out_dir / "irc_flacenc.exe"
         r = subprocess.run([msvc_tool("cl.exe", env), "/nologo", "/O2", "/W0", "/D_CRT_SECURE_NO_WARNINGS", f"/I{inc}",
                             str(src), f"/Fe:{exe}", "/link", "/MANIFEST:EMBED",
-                            f"/MANIFESTINPUT:{ROOT / 'runtime' / 'utf8.manifest'}"],
+                            f"/MANIFESTINPUT:{RUNTIME / 'utf8.manifest'}"],
                            cwd=str(out_dir), env=env, capture_output=True, text=True, errors="replace")
         if r.returncode:
             log(r.stdout[-4000:])

@@ -18,8 +18,7 @@ from pathlib import Path
 
 from .parallel import available_cpus
 
-ROOT = Path(__file__).resolve().parent.parent
-THIRD = ROOT / "third_party"
+from .paths import RUNTIME, THIRD, VENDOR
 
 LLVM_MINGW_VERSION = "20260922"
 LLVM_MINGW_NAME = f"llvm-mingw-{LLVM_MINGW_VERSION}-ucrt-x86_64"
@@ -95,7 +94,7 @@ def ensure_llvm_mingw(log):
     dest = llvm_mingw_dir()
     if llvm_mingw_ready():
         return dest
-    THIRD.mkdir(exist_ok=True)
+    THIRD.mkdir(parents=True, exist_ok=True)
     zpath = THIRD / f"{LLVM_MINGW_NAME}.zip"
     if not (zpath.exists() and sha256_file(zpath) == LLVM_MINGW_SHA256):
         log(f"downloading the C compiler: llvm-mingw {LLVM_MINGW_VERSION} (clang, ~{LLVM_MINGW_MB} MB, only the first time) ...")
@@ -135,8 +134,8 @@ def gen_sources(gen_dir):
 def utf8_resource(tc, obj):
     """Compile runtime/utf8.rc (UTF-8 process code page, so paths with accents work); returns
     None or the error text."""
-    r = subprocess.run([str(tc / "bin" / "x86_64-w64-mingw32-windres.exe"), "-I", str(ROOT / "runtime"),
-                        str(ROOT / "runtime" / "utf8.rc"), "-o", str(obj)], capture_output=True, text=True,
+    r = subprocess.run([str(tc / "bin" / "x86_64-w64-mingw32-windres.exe"), "-I", str(RUNTIME),
+                        str(RUNTIME / "utf8.rc"), "-o", str(obj)], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return ((r.stdout + r.stderr).strip() or "windres failed") if r.returncode else None
 
@@ -151,7 +150,7 @@ def clang_flacenc(out_dir, log):
     err = utf8_resource(tc, res)
     if not err:
         r = subprocess.run([str(tc / "bin" / "clang.exe"), f"--target={TARGET}", "-static", "-w"] + CFLAGS +
-                           [f"-I{ROOT / 'third_party' / 'dr_libs'}", str(ROOT / "tools" / "flacenc" / "flacenc.c"),
+                           [f"-I{VENDOR / 'dr_libs'}", str(RUNTIME.parent / "tools" / "flacenc" / "flacenc.c"),
                             str(res), "-o", str(exe)], capture_output=True, text=True, encoding="utf-8",
                            errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         err = (r.stdout + r.stderr).strip() if r.returncode else None
@@ -171,10 +170,10 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
     gen_dir = Path(gen_dir).resolve()
     sdl_inc, sdl_lib = sdl / "include", sdl / "lib" / "x64"
     base = [clang, f"--target={TARGET}", "-c"] + CFLAGS
-    incs = [f"-I{ROOT / 'runtime'}", f"-I{gen_dir}", f"-I{ROOT / 'third_party' / 'dr_libs'}", f"-I{sdl_inc}"]
+    incs = [f"-I{RUNTIME}", f"-I{gen_dir}", f"-I{VENDOR / 'dr_libs'}", f"-I{sdl_inc}"]
 
     jobs_list = []                                   # (source, object, extra flags)
-    for src in sorted((ROOT / "runtime").glob("*.c")):
+    for src in sorted(RUNTIME.glob("*.c")):
         jobs_list.append((src, obj_dir / f"rt_{src.stem}.o", ["-Wall", "-Wno-unused-function"]))
     for src in gen_sources(gen_dir):
         jobs_list.append((src, obj_dir / f"gen_{src.stem}.o", ["-w"]))
