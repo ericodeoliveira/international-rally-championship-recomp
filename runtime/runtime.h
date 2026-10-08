@@ -115,6 +115,7 @@ typedef struct {
     bool d3d;                   /* offer the Direct3D (accelerated) mode to the game */
     char shot_dir[1024];        /* debug: save a frame per second as BMP */
     char autokeys[2048];        /* debug: "ms:KEY[+],..." scripted key presses */
+    int shot_ms;                /* debug: interval between saved frames (default 1000) */
     int exit_after_ms;          /* debug: quit after N ms */
     char record_dir[1024];      /* debug: write the mixed sound effects / CD music to WAV files */
     char poke[256];             /* debug: "addr=byte@ms,..." writes guest memory at a given time */

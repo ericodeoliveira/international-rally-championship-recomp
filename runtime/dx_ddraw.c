@@ -200,7 +200,7 @@ void video_present_if_needed(void)
         static uint64_t last;
         static int n;
         uint64_t now = SDL_GetTicks();
-        if (now - last >= 1000) {
+        if (now - last >= (uint64_t)(g_cfg.shot_ms > 0 ? g_cfg.shot_ms : 1000)) {
             last = now;
             SDL_Surface *s = SDL_RenderReadPixels(g_ren, NULL);
             if (s) {

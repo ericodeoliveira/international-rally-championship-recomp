@@ -82,6 +82,7 @@ static void load_config(int argc, char **argv)
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) g_cfg.window_scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--shots") && i + 1 < argc) snprintf(g_cfg.shot_dir, sizeof g_cfg.shot_dir, "%s", argv[++i]);
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) snprintf(g_cfg.autokeys, sizeof g_cfg.autokeys, "%s", argv[++i]);
+        else if (!strcmp(argv[i], "--shot-ms") && i + 1 < argc) g_cfg.shot_ms = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--exit-after") && i + 1 < argc) g_cfg.exit_after_ms = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) snprintf(g_cfg.record_dir, sizeof g_cfg.record_dir, "%s", argv[++i]);
         else if (!strcmp(argv[i], "--poke") && i + 1 < argc) snprintf(g_cfg.poke, sizeof g_cfg.poke, "%s", argv[++i]);
