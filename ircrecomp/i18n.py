@@ -190,11 +190,11 @@ TEXT = {
                  "en": "Smooth image scaling (unchecked = sharp pixels)",
                  "es": "Suavizar el escalado de la imagen (desmarcado = píxeles nítidos)"},
     "s_hint": {"pt": "Controles padrão: Z/X direção, ' acelera, / freia, ; e . marchas, C câmera, P pausa.\n"
-                     "Podem ser redefinidos no menu Options › Settings do jogo. Gamepads funcionam.",
+                     "Podem ser redefinidos no menu Options › Settings do jogo. Controles físicos ainda não são suportados.",
                "en": "Default controls: Z/X steer, ' accelerate, / brake, ; and . gears, C camera, P pause.\n"
-                     "They can be changed in the game's Options › Settings menu. Gamepads work.",
+                     "They can be changed in the game's Options › Settings menu. Physical controllers are not supported yet.",
                "es": "Controles por defecto: Z/X dirección, ' acelera, / frena, ; y . marchas, C cámara, P pausa.\n"
-                     "Se pueden cambiar en el menú Options › Settings del juego. Los mandos funcionan."},
+                     "Se pueden cambiar en el menú Options › Settings del juego. Los mandos físicos aún no son compatibles."},
     "s_save": {"pt": "Salvar", "en": "Save", "es": "Guardar"},
     "s_cancel": {"pt": "Cancelar", "en": "Cancel", "es": "Cancelar"},
 }
