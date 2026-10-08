@@ -23,7 +23,7 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import i18n
+from . import i18n, installcheck
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = ROOT / "ircrecomp_gui.json"
@@ -127,6 +127,7 @@ class GameButton(tk.Label):
     KINDS = {
         "normal": dict(bg=BTN, fg=YELLOW, hover_bg=MAGENTA, hover_fg=WHITE, border=EDGE, off_bg=BTN),
         "play": dict(bg=MAGENTA, fg=WHITE, hover_bg=PINK, hover_fg=WHITE, border="#ff7cc0", off_bg="#3a1048"),
+        "danger": dict(bg="#4a0c26", fg="#ff9a9a", hover_bg=RED, hover_fg=WHITE, border="#a0204a", off_bg=BTN),
     }
 
     def __init__(self, parent, text, command, kind="normal", font=None, padx=14, pady=6):
@@ -254,6 +255,7 @@ class App(tk.Tk):
         self.geometry("920x820")
         self.configure(bg=NAVY)
         self.proc = None
+        self.task = None                # "check" / "delete" running in the background
         self.lines = queue.Queue()
         self.f = Fonts(self)
         style_ttk(self)
@@ -292,8 +294,13 @@ class App(tk.Tk):
         top.pack(fill="x", pady=(2, 6))
         self.btn_build = GameButton(top, self.T("build"), self.start_build, font=self.f.button)
         self.btn_build.pack(side="left")
-        self.status = tk.Label(top, text="", bg=NAVY, fg=WHITE, font=self.f.text, anchor="w", justify="left")
-        self.status.pack(side="left", padx=12, fill="x", expand=True)
+        self.btn_check = self.tr(GameButton(top, "", self.start_check, font=self.f.button), lambda: self.T("check"))
+        self.btn_check.pack(side="left", padx=(8, 0))
+        self.btn_delete = self.tr(GameButton(top, "", self.start_delete, kind="danger", font=self.f.button),
+                                  lambda: self.T("delete"))
+        self.btn_delete.pack(side="left", padx=(8, 0))
+        self.status = tk.Label(body, text="", bg=NAVY, fg=WHITE, font=self.f.text, anchor="w", justify="left")
+        self.status.pack(fill="x", pady=(0, 4))
         self.progress = ttk.Progressbar(body, maximum=N_STEPS * 100, style="Game.Horizontal.TProgressbar")
         self.progress.pack(fill="x")
         steps = tk.Frame(body, bg=NAVY)
@@ -317,6 +324,7 @@ class App(tk.Tk):
         self.log.tag_configure("step", foreground=YELLOW, font=(self.f.mono[0], 9, "bold"))
         self.log.tag_configure("ok", foreground=GREEN, font=(self.f.mono[0], 10, "bold"))
         self.log.tag_configure("err", foreground=RED)
+        self.log.tag_configure("warn", foreground="#ffb347")
 
         # --- 3. jogar
         tk.Frame(body, bg=MAGENTA, height=2).pack(fill="x", pady=(2, 10))
@@ -519,9 +527,10 @@ class App(tk.Tk):
 
     def refresh(self):
         has_game = self.game_exe() is not None
-        building = self.proc is not None
-        for b in (self.btn_play, self.btn_cfg, self.btn_link, self.btn_open):
+        building = self.proc is not None or self.task is not None
+        for b in (self.btn_play, self.btn_cfg, self.btn_link, self.btn_open, self.btn_check):
             b.set_enabled(has_game and not building)
+        self.btn_delete.set_enabled(installcheck.is_build(self.out.get()) and not building)
         self.btn_build.set_enabled(not building)
         self.btn_build.configure(text=self.T("rebuild" if has_game else "build"))
         if not building and self.status_msg[0] in ("st_ready", "st_choose"):
@@ -531,7 +540,7 @@ class App(tk.Tk):
                 self.set_status("st_choose", WHITE)
 
     def on_out_change(self):
-        if self.proc is None:
+        if self.proc is None and self.task is None:
             self.status_msg = ("st_choose", {}, WHITE)
         self.refresh()
 
@@ -646,6 +655,12 @@ class App(tk.Tk):
                 if isinstance(item, tuple):
                     if item[0] == "__assets__":
                         self.assets_ready(item[1])
+                    elif item[0] == "__check__":
+                        self.check_result(*item[1:])
+                    elif item[0] == "__check_done__":
+                        self.check_finished()
+                    elif item[0] == "__deleted__":
+                        self.delete_finished(item[1])
                     else:
                         self.finished(item[1])
                     continue
@@ -688,6 +703,79 @@ class App(tk.Tk):
             self.set_status("st_fail", RED)
             self.refresh()
             messagebox.showerror(self.T("m_fail"), self.T("m_fail_msg"))
+
+    # ------------------------------------------------------ validate / delete
+    def clear_log(self):
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
+
+    def start_check(self):
+        if not self.game_exe() or self.proc or self.task:
+            return
+        self.task = "check"
+        self.check_results = []
+        self.clear_log()
+        self.progress["value"] = 0
+        self.mark_step(-1)
+        self.set_status("st_checking", YELLOW)
+        self.append_log(self.T("chk_start"), "step")
+        self.refresh()
+        out = self.out.get()
+
+        def work():
+            for res in installcheck.check(out):
+                self.lines.put(("__check__",) + res)
+            self.lines.put(("__check_done__",))
+        threading.Thread(target=work, daemon=True).start()
+
+    def check_result(self, status, key, kw):
+        text = self.T(key).format(**kw)
+        if status == "info":
+            self.append_log(text, "step")
+            return
+        self.check_results.append(status)
+        mark, tag = {True: ("✔", "ok"), False: ("✖", "err"), None: ("⚠", "warn")}[status]
+        self.append_log(f"{mark}  {text}", tag)
+        self.progress["value"] = min(N_STEPS * 100, self.progress["value"] + N_STEPS * 25)
+
+    def check_finished(self):
+        self.task = None
+        self.progress["value"] = N_STEPS * 100
+        failed = False in self.check_results
+        warned = None in self.check_results
+        self.set_status("st_check_fail" if failed else "st_check_ok", RED if failed else GREEN)
+        self.refresh()
+        if failed:
+            messagebox.showerror(self.T("m_check"), self.T("m_check_fail"))
+        elif warned:
+            messagebox.showwarning(self.T("m_check"), self.T("m_check_warn"))
+        else:
+            messagebox.showinfo(self.T("m_check"), self.T("m_check_ok"))
+
+    def start_delete(self):
+        out = self.out.get()
+        if not installcheck.is_build(out) or self.proc or self.task:
+            return
+        if not messagebox.askyesno(self.T("m_del"), self.T("m_del_ask").format(out=out), icon="warning", default="no"):
+            return
+        self.task = "delete"
+        self.set_status("st_deleting", YELLOW)
+        self.refresh()
+        threading.Thread(target=lambda: self.lines.put(("__deleted__", installcheck.remove(out))), daemon=True).start()
+
+    def delete_finished(self, err):
+        self.task = None
+        if err:
+            self.status_msg = ("st_choose", {}, WHITE)
+            self.refresh()
+            messagebox.showerror(self.T("m_del"), self.T(err))
+            return
+        self.clear_log()
+        self.progress["value"] = 0
+        self.mark_step(-1)
+        self.set_status("st_deleted", WHITE)
+        self.refresh()
 
     # ----------------------------------------------------------------- play
     def play(self):

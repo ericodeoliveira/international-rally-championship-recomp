@@ -29,8 +29,19 @@ Dê dois cliques em **`IRC Recompilador.bat`**. Na janela:
 4. **▶ Jogar**, **Configurações…** (tela cheia, proporção, resolução do 3D, limite de quadros,
    filtros), **Criar atalho na área de trabalho** e **Abrir pasta**.
 
+Ao lado de Recompilar, ativos só quando já existe uma compilação na pasta escolhida:
+
+- **Validar** — confere se os arquivos essenciais e as 12 músicas estão lá, compara cada arquivo
+  com o registro de integridade gravado pela recompilação (`irc_build.json`: tamanho e SHA-1;
+  saves e configurações em `game\VAR` e `game\SAVEDATA` ficam de fora) e abre o jogo em janela por
+  alguns segundos para ver se ele inicia, carrega e fecha normalmente.
+- **Apagar** — depois de confirmar, remove tudo o que a recompilação criou (executável, dados,
+  músicas, saves, `_work` e o atalho da área de trabalho que aponta para ele). Só apaga pastas que
+  têm cara de instalação do recompilador; a imagem do CD não é tocada.
+
 A janela lembra a última imagem e pasta usadas. Na primeira abertura ela prepara o ambiente
-Python sozinha.
+Python sozinha. A pasta de instalação pode ter acentos (o executável usa UTF-8 como página de
+código do Windows).
 
 O visual segue os menus do jogo (fundo magenta, painel azul-marinho, letras itálicas amarelas).
 O logotipo oficial e as fotos de rali que se alternam no topo (clique na foto para trocar) são lidos
@@ -47,6 +58,8 @@ inglês ou espanhol na hora (a escolha fica salva). Os textos estão em
 ```bat
 ircrecomp.bat caminho\para\IRC.cue
 ```
+
+Para validar uma instalação: `python -m ircrecomp check --out dist\IRC`.
 
 Em ~30 segundos é criada a pasta `dist\IRC` com:
 

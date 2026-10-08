@@ -1,6 +1,7 @@
 """ircrecomp command line.
 
     python -m ircrecomp build IRC.cue --out dist/IRC     # everything: extract, lift, compile, package
+    python -m ircrecomp check --out dist/IRC             # verify a built game folder
     python -m ircrecomp lift RAL.EXE build/gen           # only generate C from the executable
     python -m ircrecomp analyze RAL.EXE                  # control-flow statistics
 """
@@ -159,7 +160,21 @@ def cmd_build(a):
     shutil.rmtree(work / "build", ignore_errors=True)
     for iso in work.glob("*.iso"):
         iso.unlink()
+    from .installcheck import write_manifest
+    n = write_manifest(out, sha, a.compiler)
+    log(f"  integrity record: {n} files (irc_build.json)")
     log(f"done: {out / built.name}")
+
+
+def cmd_check(a):
+    from .installcheck import check
+    from .i18n import text
+    ok = True
+    for status, key, kw in check(a.out):
+        mark = {True: "ok  ", False: "FAIL", None: "warn", "info": "...."}[status]
+        print(f"[{mark}] {text(key, 'en').format(**kw)}", flush=True)
+        ok = ok and status is not False
+    sys.exit(0 if ok else 1)
 
 
 def main():
@@ -171,6 +186,8 @@ def main():
     b.add_argument("--compiler", choices=["auto", "msvc", "clang"], default=os.environ.get("IRC_COMPILER", "auto"),
                    help="Windows C compiler: msvc (Visual Studio Build Tools), clang (llvm-mingw, downloaded "
                         "automatically) or auto = msvc when installed, else clang (default; env IRC_COMPILER)")
+    c = sub.add_parser("check", help="verify a built game folder (files, integrity, a short test run)")
+    c.add_argument("--out", default="dist/IRC", help="game folder made by build")
     l = sub.add_parser("lift", help="generate C sources from RAL.EXE")
     l.add_argument("exe")
     l.add_argument("gen_dir")
@@ -183,6 +200,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "build":
         cmd_build(a)
+    elif a.cmd == "check":
+        cmd_check(a)
     elif a.cmd == "lift":
         lift(a.exe, a.gen_dir)
     elif a.cmd == "verify":
