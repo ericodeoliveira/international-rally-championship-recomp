@@ -1,0 +1,25 @@
+# Python / local tools
+.venv/
+__pycache__/
+ircrecomp_gui.json
+
+# build outputs
+build/
+dist/
+extracted/
+*.exe
+*.dll
+*.obj
+*.lib
+*.pdb
+*.log
+
+# game content: never in the repository (the C is generated on the player's machine)
+*.bin
+*.cue
+*.iso
+International_Rally_Championship_Patch/
+tests/*/gen/
+
+# downloaded on demand by ircrecomp (official SDL3 release)
+third_party/SDL3-*/

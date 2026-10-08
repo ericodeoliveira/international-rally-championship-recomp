@@ -1,0 +1,73 @@
+# Known functions of RAL.EXE 4.81 (International Rally Championship), found by reverse
+# engineering while building ircrecomp. Format: address name [comment]
+# Names become aliases (#define name f_XXXXXXXX) and comments in the generated C, so the
+# recompiled code can be read and patched by name. Extend freely.
+
+00401000 game_entry                  process entry point: init, start threads, message loop, exit
+0040D5A3 find_previous_instance      FindWindowA; carry set when already running
+0040D5C3 create_main_window          RegisterClassA + CreateWindowExA (class "MF-SDG R4")
+0040D6B7 destroy_main_window
+0040D6D8 shutdown_subsystems         audio, CD, input, DirectDraw, Direct3D teardown
+0040D71E request_quit                sets the quit flag [0x475109] and starts the shutdown thread
+0040D738 shutdown_thread             thread 4: stops the other threads and posts WM_CLOSE
+0040D79C wait_shutdown_thread
+0040D7BE message_loop                GetMessageA / DispatchMessageA until WM_QUIT
+0040D7E8 window_proc                 WM_ACTIVATEAPP starts the game thread; msg 0x1717 = mode change
+0040D8DA game_thread                 thread 1: waits for activation, then runs the whole game
+0040D988 get_frame_counter
+0040D98E wait_frame_counter
+0040D99C sleep_ms                    eax = milliseconds
+0040D9B7 open_directdraw
+0040DA2F close_directdraw
+0040DAD9 detect_video_modes          2D and 3D mode detection, writes var\logfile.txt lines
+0040DD4D enum_8bit_modes
+0040DD84 enum_16bit_modes
+0040DDD3 enum_modes_callback         DDSURFACEDESC -> mode table [0x4885e9]
+0040DE87 set_video_mode_async        posts 0x1717 to the window thread when needed
+0040DEF1 set_video_mode              eax = mode index, ebx = 3D flag
+0040ED94 load_file                   eax = name, ebx = buffer, ecx = max size; carry on error
+0040F5DC detect_cpu                  CPUID / MMX detection (EFLAGS bit 21 idiom)
+0040FA3F memclear                    ebx = address, ecx = bytes
+0040FCA8 start_threads               game, audio and input threads
+0040FCCC resume_threads
+0040FD1D create_thread               esi = thread descriptor {entry, tid, handle, state}
+0040FD46 current_thread_descriptor
+0040FD82 suspend_thread
+0040FD9A resume_thread
+0040FDB2 set_priority_class
+0040FDC5 set_thread_priority
+00410894 input_thread                thread 3: polls DirectInput at 50 Hz
+004109B2 open_directinput
+004109F5 open_keyboard
+00410A98 read_keyboard               DIK state -> internal key table [0x492818]
+00412312 audio_thread                thread 2: mixes into the DirectSound primary buffer
+00411FF1 open_directsound            22050 Hz 16-bit stereo primary, 8-bit fallbacks
+004122C1 close_directsound
+00412AB0 cdaudio_open                MCI cdaudio, TMSF time format
+00412B42 cdaudio_close
+00412B73 cdaudio_play                eax = from (TMSF), ebx = to
+00412BFA cdaudio_track_range         start/end positions of a track
+00412CB7 cdaudio_play_tracks
+00412D58 cdaudio_stop
+00412DD1 cdaudio_poll                restarts the music when a track range ends
+0041A2B3 player_controls_keyboard    steering/throttle/brake/gears from the key bindings
+004211DB reset_default_settings      default key bindings, resolution, options
+00438B85 select_graphics_mode        option byte [0x45dd5a]: 0 software, 2 Direct3D
+00450A19 load_ral_zog                var\ral.zog: cdrom=, cdlng=, installation=
+004514CF load_text_config
+004514F2 config_find_key
+0045172B d3d_query_interface         IDirectDraw -> IDirect3D2
+00451770 find_3d_hardware            DirectDrawEnumerate + caps check
+004517C5 ddraw_enum_callback
+0045194D d3d_enum_devices
+00451975 d3d_enum_devices_callback   reads HAL caps into the 3D feature flags
+00451CCF d3d_create_device
+00451CFF d3d_enum_texture_formats
+00451D3B d3d_texture_format_callback 8-bit palettized preferred, else RGB555/565
+00451EF1 d3d_create_viewport
+0045203C d3d_close
+0045205D d3d_open
+0045209A d3d_begin_scene             sets the base render states
+004522A1 d3d_create_texture_page     system-memory + video-memory 256x256 surfaces
+004525AA d3d_upload_texture_page
+004527B3 d3d_create_system_textures
