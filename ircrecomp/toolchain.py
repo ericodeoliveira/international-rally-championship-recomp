@@ -41,6 +41,14 @@ def llvm_mingw_ready():
     return (llvm_mingw_dir() / "bin" / "clang.exe").exists()
 
 
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def download(url, dest, sha256, log, label):
     """Download url to dest, logging progress, and check its SHA-256."""
     part = dest.with_name(dest.name + ".part")
@@ -83,8 +91,9 @@ def ensure_llvm_mingw(log):
         return dest
     THIRD.mkdir(exist_ok=True)
     zpath = THIRD / f"{LLVM_MINGW_NAME}.zip"
-    log(f"downloading the C compiler: llvm-mingw {LLVM_MINGW_VERSION} (clang, ~{LLVM_MINGW_MB} MB, only the first time) ...")
-    download(LLVM_MINGW_URL, zpath, LLVM_MINGW_SHA256, log, "llvm-mingw")
+    if not (zpath.exists() and sha256_file(zpath) == LLVM_MINGW_SHA256):
+        log(f"downloading the C compiler: llvm-mingw {LLVM_MINGW_VERSION} (clang, ~{LLVM_MINGW_MB} MB, only the first time) ...")
+        download(LLVM_MINGW_URL, zpath, LLVM_MINGW_SHA256, log, "llvm-mingw")
     log("  unpacking ...")
     tmp = THIRD / (LLVM_MINGW_NAME + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -126,7 +135,7 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
     obj_dir.mkdir(parents=True, exist_ok=True)
     gen_dir = Path(gen_dir).resolve()
     sdl_inc, sdl_lib = sdl / "include", sdl / "lib" / "x64"
-    base = [clang, f"--target={TARGET}", "-c"] + CFLAGS
+    base = [clang, f"--target={TARGET}", "-c"] + CFLAGS + os.environ.get("IRC_CFLAGS_EXTRA", "").split()
     incs = [f"-I{ROOT / 'runtime'}", f"-I{gen_dir}", f"-I{ROOT / 'third_party' / 'dr_libs'}", f"-I{sdl_inc}"]
 
     jobs_list = []                                   # (source, object, extra flags)
@@ -154,10 +163,6 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
 
     def compile_one(job):
         src, obj, extra = job
-        if obj.exists() and obj.stat().st_mtime >= src.stat().st_mtime and src.parent != ROOT / "runtime":
-            counter[0] += 1
-            log(f"[{counter[0]}/{total}] up to date {src.name}")
-            return None
         return run(base + extra + incs + [str(src), "-o", str(obj)], f"Building C object {src.name}")
 
     # biggest files first, so the long ones do not finish last
