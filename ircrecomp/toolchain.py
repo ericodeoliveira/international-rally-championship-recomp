@@ -16,6 +16,8 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from .parallel import available_cpus
+
 ROOT = Path(__file__).resolve().parent.parent
 THIRD = ROOT / "third_party"
 
@@ -130,8 +132,37 @@ def gen_sources(gen_dir):
     return out
 
 
+def utf8_resource(tc, obj):
+    """Compile runtime/utf8.rc (UTF-8 process code page, so paths with accents work); returns
+    None or the error text."""
+    r = subprocess.run([str(tc / "bin" / "x86_64-w64-mingw32-windres.exe"), "-I", str(ROOT / "runtime"),
+                        str(ROOT / "runtime" / "utf8.rc"), "-o", str(obj)], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return ((r.stdout + r.stderr).strip() or "windres failed") if r.returncode else None
+
+
+def clang_flacenc(out_dir, log):
+    """Build only the FLAC encoder (one small file), so the music can be compressed while the
+    game itself is still being translated and compiled. Returns the .exe path."""
+    tc = ensure_llvm_mingw(log)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    res, exe = out_dir / "utf8_res.o", out_dir / "irc_flacenc.exe"
+    err = utf8_resource(tc, res)
+    if not err:
+        r = subprocess.run([str(tc / "bin" / "clang.exe"), f"--target={TARGET}", "-static", "-w"] + CFLAGS +
+                           [f"-I{ROOT / 'third_party' / 'dr_libs'}", str(ROOT / "tools" / "flacenc" / "flacenc.c"),
+                            str(res), "-o", str(exe)], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        err = (r.stdout + r.stderr).strip() if r.returncode else None
+    if err:
+        log(err[:20000])
+        sys.exit("compilation of the music encoder failed")
+    return exe
+
+
 def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
-    """Compile and link IRC.exe and irc_flacenc.exe with llvm-mingw; returns the IRC.exe path."""
+    """Compile and link IRC.exe with llvm-mingw; returns the IRC.exe path."""
     tc = ensure_llvm_mingw(log)
     clang = str(tc / "bin" / "clang.exe")
     build_dir = Path(build_dir)
@@ -147,9 +178,7 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
         jobs_list.append((src, obj_dir / f"rt_{src.stem}.o", ["-Wall", "-Wno-unused-function"]))
     for src in gen_sources(gen_dir):
         jobs_list.append((src, obj_dir / f"gen_{src.stem}.o", ["-w"]))
-    flac_src = ROOT / "tools" / "flacenc" / "flacenc.c"
-    jobs_list.append((flac_src, obj_dir / "flacenc.o", ["-w"]))
-    total = len(jobs_list) + 3
+    total = len(jobs_list) + 2
 
     env = dict(os.environ)
     env["PATH"] = str(tc / "bin") + os.pathsep + env.get("PATH", "")
@@ -172,7 +201,7 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
 
     # biggest files first, so the long ones do not finish last
     jobs_list.sort(key=lambda j: -j[0].stat().st_size)
-    with ThreadPoolExecutor(max_workers=jobs or os.cpu_count() or 4) as pool:
+    with ThreadPoolExecutor(max_workers=jobs or available_cpus()) as pool:
         errors = [e for e in pool.map(compile_one, jobs_list) if e]
     if errors:
         log("\n\n".join(errors)[:20000])
@@ -180,21 +209,21 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
 
     # UTF-8 as the process code page (runtime/utf8.manifest), so paths with accents work
     res = obj_dir / "utf8_res.o"
-    err = run([str(tc / "bin" / "x86_64-w64-mingw32-windres.exe"), "-I", str(ROOT / "runtime"),
-               str(ROOT / "runtime" / "utf8.rc"), "-o", str(res)], "Building resource utf8.rc")
+    err = utf8_resource(tc, res)
+    with lock:
+        counter[0] += 1
+        log(f"[{counter[0]}/{total}] Building resource utf8.rc")
     if err:
         log(err[:20000])
         sys.exit("compilation failed")
 
     exe = build_dir / "IRC.exe"
-    objs = [str(o) for _s, o, _x in jobs_list if o.name != "flacenc.o"] + [str(res)]
+    objs = [str(o) for _s, o, _x in jobs_list] + [str(res)]
     link = [clang, f"--target={TARGET}", "-mwindows", "-static", "-o", str(exe)] + objs + \
            [str(sdl_lib / "SDL3.lib")]
     rsp = build_dir / "link.rsp"                     # keeps the long object list off the command line
     rsp.write_text(" ".join('"' + a.replace("\\", "/") + '"' for a in link[1:]), encoding="utf-8")
     err = run([clang, f"@{rsp}"], "Linking C executable IRC.exe")
-    err = err or run([clang, f"--target={TARGET}", "-static", "-o", str(build_dir / "irc_flacenc.exe"),
-                      str(obj_dir / "flacenc.o"), str(res)], "Linking C executable irc_flacenc.exe")
     if err:
         log(err[:20000])
         sys.exit("compilation failed")

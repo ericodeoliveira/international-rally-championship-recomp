@@ -16,8 +16,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+from .parallel import available_cpus, physical_cpus, workers
+
 ROOT = Path(__file__).resolve().parent.parent
-CRLF = chr(13) + chr(10)
 SDL_VERSION = "3.4.16"
 SDL_VC_SHA256 = "1a784cb2a5c64d56fe7a62090fe9d242d9865f235e4ea9678f1a6ba4e693e7de"
 KNOWN_EXES = {
@@ -56,6 +57,41 @@ def find_vcvars():
     return None
 
 
+_MSVC_ENV = None
+
+
+def msvc_env():
+    """The environment of the Visual Studio developer prompt (vcvars64.bat), captured once.
+
+    `cmd /u` prints it as UTF-16, so paths with accents (user folders, the chosen install folder)
+    survive; the compiler and CMake are then started directly with it instead of through a .bat,
+    which cmd would read in the old console code page."""
+    global _MSVC_ENV
+    if _MSVC_ENV is None:
+        vcvars = find_vcvars()
+        if not vcvars:
+            sys.exit("Visual Studio Build Tools (C++ workload) not found; use --compiler clang "
+                     "(downloaded automatically) or install them from "
+                     "https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+        r = subprocess.run(f'cmd /d /u /s /c ""{vcvars}" >nul 2>&1 && set"', capture_output=True)
+        env = {}
+        for line in r.stdout.decode("utf-16-le", errors="replace").splitlines():
+            k, sep, v = line.partition("=")
+            if sep and k:
+                env[k] = v
+        if r.returncode or not env:
+            sys.exit("could not load the Visual Studio environment (vcvars64.bat)")
+        _MSVC_ENV = env
+    return _MSVC_ENV
+
+
+def msvc_tool(name, env):
+    """Full path of a tool on the developer prompt's PATH (Windows looks executables up in the
+    parent's PATH, not in the `env` given to the child)."""
+    path = next((v for k, v in env.items() if k.upper() == "PATH"), None)
+    return shutil.which(name, path=path) or name
+
+
 def ensure_sdl_windows():
     sdl = ROOT / "third_party" / f"SDL3-{SDL_VERSION}"
     if (sdl / "cmake" / "SDL3Config.cmake").exists():
@@ -73,12 +109,67 @@ def ensure_sdl_windows():
 
 
 def windows_compiler(choice="auto"):
-    """'msvc' when chosen or (for 'auto') when the Visual Studio Build Tools are installed,
-    otherwise 'clang': the portable llvm-mingw toolchain, downloaded on first use."""
+    """The C compiler to use on Windows. 'auto': clang (portable llvm-mingw) when it is already
+    downloaded, since it compiles the game ~5x faster than MSVC with the same result; else MSVC
+    when the Visual Studio Build Tools are installed; else clang, downloaded on first use."""
     choice = (choice or "auto").lower()
     if choice == "auto":
+        from .toolchain import llvm_mingw_ready
+        if llvm_mingw_ready():
+            return "clang"
         return "msvc" if find_vcvars() else "clang"
     return choice
+
+
+def build_flac_encoder(out_dir, compiler="auto"):
+    """Compile tools/flacenc/flacenc.c on its own (seconds), before the game, so the music can be
+    compressed while RAL.EXE is being translated and compiled."""
+    out_dir = Path(out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src, inc = ROOT / "tools" / "flacenc" / "flacenc.c", ROOT / "third_party" / "dr_libs"
+    if platform.system() == "Windows":
+        if windows_compiler(compiler) == "clang":
+            from .toolchain import clang_flacenc
+            return clang_flacenc(out_dir, log)
+        env = msvc_env()
+        exe = out_dir / "irc_flacenc.exe"
+        r = subprocess.run([msvc_tool("cl.exe", env), "/nologo", "/O2", "/W0", "/D_CRT_SECURE_NO_WARNINGS", f"/I{inc}",
+                            str(src), f"/Fe:{exe}", "/link", "/MANIFEST:EMBED",
+                            f"/MANIFESTINPUT:{ROOT / 'runtime' / 'utf8.manifest'}"],
+                           cwd=str(out_dir), env=env, capture_output=True, text=True, errors="replace")
+        if r.returncode:
+            log(r.stdout[-4000:])
+    else:
+        exe = out_dir / "irc_flacenc"
+        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc") or "cc"
+        r = subprocess.run([cc, "-O2", "-w", f"-I{inc}", str(src), "-o", str(exe), "-lm"])
+    if r.returncode or not exe.exists():
+        sys.exit("compilation of the music encoder failed")
+    return exe
+
+
+def start_flac(enc, wavs, n_workers):
+    """Compress the CD tracks in the background, `n_workers` at a time. Returns (pool, futures);
+    each future gives (wav, ok, message)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    # lower priority: the encoders only take cores the translation and the compiler leave idle
+    if platform.system() == "Windows":
+        extra = dict(creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+    else:
+        extra = dict(preexec_fn=lambda: os.nice(10))
+
+    def one(wav):
+        flac = wav.with_suffix(".flac")
+        r = subprocess.run([str(enc), str(wav), str(flac)], capture_output=True, text=True, **extra)
+        if r.returncode == 0:
+            wav.unlink()
+            return wav, True, r.stdout.strip().split(": ", 1)[-1]
+        flac.unlink(missing_ok=True)
+        return wav, False, r.stderr.strip()
+
+    pool = ThreadPoolExecutor(max_workers=n_workers)
+    return pool, [pool.submit(one, w) for w in wavs]
 
 
 def cmake_build(gen_dir, build_dir, jobs=None, compiler="auto"):
@@ -90,25 +181,20 @@ def cmake_build(gen_dir, build_dir, jobs=None, compiler="auto"):
             from .toolchain import clang_build
             log("  compiler: clang (llvm-mingw)")
             return clang_build(gen_dir, build_dir, sdl, log, jobs)
-        vcvars = find_vcvars()
-        if not vcvars:
-            sys.exit("Visual Studio Build Tools (C++ workload) not found; use --compiler clang "
-                     "(downloaded automatically) or install them from "
-                     "https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+        env = msvc_env()
         log("  compiler: MSVC (Visual Studio Build Tools)")
         args += ["-G", "Ninja", f"-DSDL3_DIR={sdl / 'cmake'}"]
         build_dir.mkdir(parents=True, exist_ok=True)
-        script = build_dir.parent / "compile.bat"
-        lines = ["@echo off",
-                 f'call "{vcvars}" >nul || exit /b 1',
-                 f"cmake {subprocess.list2cmdline(args)} || exit /b 1",
-                 f'cmake --build "{build_dir}" || exit /b 1']
-        script.write_bytes((CRLF.join(lines) + CRLF).encode())
-        r = subprocess.run(["cmd", "/d", "/c", str(script)])
+        cmake = msvc_tool("cmake.exe", env)
+        r = subprocess.run([cmake] + args, env=env)
+        if r.returncode == 0:
+            r = subprocess.run([cmake, "--build", str(build_dir), "--target", "irc", "-j",
+                                str(jobs or available_cpus())], env=env)
     else:
         r = subprocess.run(["cmake"] + args)
         if r.returncode == 0:
-            r = subprocess.run(["cmake", "--build", str(build_dir), "-j", str(jobs or os.cpu_count() or 4)])
+            r = subprocess.run(["cmake", "--build", str(build_dir), "--target", "irc", "-j",
+                                str(jobs or available_cpus())])
     if r.returncode:
         sys.exit("compilation failed")
     exe = build_dir / ("IRC.exe" if platform.system() == "Windows" else "IRC")
@@ -125,22 +211,33 @@ def cmd_build(a):
     exe = game / "RAL.EXE"
     sha = hashlib.sha1(exe.read_bytes()).hexdigest()
     log(f"      RAL.EXE sha1 {sha} {KNOWN_EXES.get(sha, '')}")
-    log("[2/5] recompiling RAL.EXE (x86 -> C)")
-    gen = work / "gen"
-    lift(exe, gen)
-    log("[3/5] compiling native executable")
-    built = cmake_build(gen, work / "build", compiler=a.compiler)
+    # the music is compressed in the background while the game is translated and compiled;
+    # one core stays free for the translation (single-threaded Python)
+    wavs = sorted((game / "music").glob("track*.wav"))
+    pool, futures = None, []
+    if wavs:
+        enc = build_flac_encoder(work / "tools", a.compiler)
+        biggest = max(w.stat().st_size for w in wavs)
+        n = workers(len(wavs), mem_per_job=3 * biggest, reserve_cpus=1, physical=True)
+        log(f"      compressing {len(wavs)} music tracks in the background, {n} at a time "
+            f"({physical_cpus()} physical cores, {available_cpus()} threads)")
+        pool, futures = start_flac(enc, wavs, n)
+    try:
+        log("[2/5] recompiling RAL.EXE (x86 -> C)")
+        gen = work / "gen"
+        lift(exe, gen)
+        log("[3/5] compiling native executable")
+        built = cmake_build(gen, work / "build", compiler=a.compiler)
+    except BaseException:
+        if pool:
+            pool.shutdown(wait=True, cancel_futures=True)
+        raise
     log("[4/5] compressing CD music to FLAC (lossless, verified bit-exact)")
-    enc = built.parent / ("irc_flacenc.exe" if platform.system() == "Windows" else "irc_flacenc")
-    for wav in sorted((game / "music").glob("track*.wav")):
-        flac = wav.with_suffix(".flac")
-        r = subprocess.run([str(enc), str(wav), str(flac)], capture_output=True, text=True)
-        if r.returncode == 0:
-            log("  " + r.stdout.strip().split(": ", 1)[-1])
-            wav.unlink()
-        else:
-            log(f"  {wav.name}: kept as WAV ({r.stderr.strip()})")
-            flac.unlink(missing_ok=True)
+    for fut in futures:
+        wav, ok, msg = fut.result()
+        log(f"  {msg}" if ok else f"  {wav.name}: kept as WAV ({msg})")
+    if pool:
+        pool.shutdown()
     log("[5/5] packaging")
     shutil.copy2(built, out / built.name)
     for dll in (work / "build").glob("*.dll"):
@@ -158,6 +255,7 @@ def cmd_build(a):
                        "; 3D resolution multiplier (1-8); 0 = follow the screen (1080p -> 2x, 1440p and up -> 3x)\nrender_scale=0\n"
                        "; 1 = bilinear filtering of 3D textures\ntexture_filter=1\n")
     shutil.rmtree(work / "build", ignore_errors=True)
+    shutil.rmtree(work / "tools", ignore_errors=True)
     for iso in work.glob("*.iso"):
         iso.unlink()
     from .installcheck import write_manifest

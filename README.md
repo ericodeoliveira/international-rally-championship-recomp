@@ -13,9 +13,17 @@ sobre o [SDL3](https://libsdl.org).
 Requisitos (Windows): só o Python 3.10+ e a imagem do CD. Nada de Visual Studio: na primeira
 recompilação o compilador C ([llvm-mingw](https://github.com/mstorsjo/llvm-mingw), clang + lld,
 ~180 MB) e o SDL3 são baixados automaticamente das páginas oficiais, com versão fixa e SHA-256
-conferido, e ficam em `third_party\` para as próximas vezes. Se o Visual Studio Build Tools
-(carga de trabalho C++) já estiver instalado, ele é usado no lugar; para escolher, use
+conferido, e ficam em `third_party\` para as próximas vezes. Sem o clang baixado, o Visual Studio
+Build Tools (carga de trabalho C++) é usado se estiver instalado; com o clang presente ele é o
+preferido, por compilar o jogo ~4× mais rápido com o mesmo resultado. Para escolher, use
 `--compiler clang` ou `--compiler msvc` na linha de comando (ou a variável `IRC_COMPILER`).
+
+A recompilação se ajusta ao computador: as 12 músicas são comprimidas em paralelo, em segundo
+plano e com prioridade baixa, enquanto o jogo é traduzido e compilado, uma por núcleo físico
+disponível (menos um, deixado para a tradução) e sem passar da metade da memória livre; a
+compilação usa todos os núcleos lógicos que o processo pode usar. Tempos medidos num Core
+i7-11700 (8 núcleos / 16 threads): ~26 s com clang, ~42 s com MSVC; limitado a 4 threads, ~30 s.
+Para deixar núcleos livres enquanto recompila, defina `IRC_JOBS` (por exemplo `IRC_JOBS=4`).
 
 ### Com janela (recomendado)
 
@@ -25,7 +33,7 @@ Dê dois cliques em **`IRC Recompilador.bat`**. Na janela:
    pasta onde o jogo será instalado.
 2. Confira os requisitos (verde = ok; o compilador C aparece como "será baixado automaticamente"
    até a primeira recompilação).
-3. **Recompilar o jogo** — barra de progresso pelas 5 etapas e detalhes ao vivo (~1,5 min).
+3. **Recompilar o jogo** — barra de progresso pelas 5 etapas e detalhes ao vivo (~30 s num PC de 8 núcleos).
 4. **▶ Jogar**, **Configurações…** (tela cheia, proporção, resolução do 3D, limite de quadros,
    filtros), **Criar atalho na área de trabalho** e **Abrir pasta**.
 

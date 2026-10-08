@@ -28,6 +28,7 @@ class Analysis:
         self.reached = set()       # all decoded instruction addresses
         self.bad = set()           # addresses that failed to decode
         self.noreturn_extra = set(noreturn_extra)
+        self._shapes = {}         # va -> static control-flow shape of the instruction (successors)
         self.noreturn = set()
         extra = set(self.entries)
         # Two passes: the second one stops falling through calls to no-return functions,
@@ -143,29 +144,50 @@ class Analysis:
     # ------------------------------------------------------------ exploration
     def successors(self, ins):
         """Return (kind, targets, falls_through) for an instruction."""
+        # the instruction's shape never changes, so it is computed once per address (this is
+        # called ~700k times); what can change during the analysis (no-return functions, jump
+        # and call tables) is still looked up on every call
+        shape = self._shapes.get(ins.address)
+        if shape is None:
+            shape = self._shapes[ins.address] = self._shape(ins)
+        kind, t = shape
+        if kind == "call":
+            return "call", [t], t not in self.noreturn
+        if kind == "icall":
+            return "icall", self.call_tables.get(ins.address, []), True
+        if kind == "jind":
+            if ins.address in self.jump_tables:
+                return "jtable", self.jump_tables[ins.address], False
+            return "ijmp", [], False
+        if kind == "jmp":
+            return "jmp", [t], False
+        if kind == "jcc":
+            return "jcc", [t], True
+        if kind in ("stop", "ret"):
+            return kind, [], False
+        return kind, [], True               # int, seq
+
+    @staticmethod
+    def _shape(ins):
         g = ins.groups
         op = _op0(ins)
-        nxt = ins.address + ins.size
         if ins.id in (X86_INS_HLT, X86_INS_INT3, X86_INS_UD2) or CS_GRP_IRET in g:
-            return "stop", [], False
+            return "stop", None
         if CS_GRP_RET in g:
-            return "ret", [], False
+            return "ret", None
         if CS_GRP_CALL in g:
             if op.type == X86_OP_IMM:
-                t = op.imm & 0xFFFFFFFF
-                return "call", [t], t not in self.noreturn
-            return "icall", self.call_tables.get(ins.address, []), True
+                return "call", op.imm & 0xFFFFFFFF
+            return "icall", None
         if CS_GRP_INT in g:
-            return "int", [], True
+            return "int", None
         if CS_GRP_JUMP in g:
             if ins.id == X86_INS_JMP:
                 if op.type == X86_OP_IMM:
-                    return "jmp", [op.imm & 0xFFFFFFFF], False
-                if ins.address in self.jump_tables:
-                    return "jtable", self.jump_tables[ins.address], False
-                return "ijmp", [], False
-            return "jcc", [op.imm & 0xFFFFFFFF], True
-        return "seq", [], True
+                    return "jmp", op.imm & 0xFFFFFFFF
+                return "jind", None
+            return "jcc", op.imm & 0xFFFFFFFF
+        return "seq", None
 
     def _explore(self, work=None):
         img = self.img
