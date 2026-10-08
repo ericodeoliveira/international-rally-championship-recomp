@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -53,20 +54,23 @@ def download(url, dest, sha256, log, label):
     """Download url to dest, logging progress, and check its SHA-256."""
     part = dest.with_name(dest.name + ".part")
     h = hashlib.sha256()
-    with urllib.request.urlopen(url) as r, open(part, "wb") as f:
-        total = int(r.headers.get("Content-Length") or 0)
-        done, shown = 0, -1
-        while True:
-            chunk = r.read(1 << 20)
-            if not chunk:
-                break
-            f.write(chunk)
-            h.update(chunk)
-            done += len(chunk)
-            pct = done * 100 // total if total else 0
-            if total and pct // 10 != shown:
-                shown = pct // 10
-                log(f"  {label}: {done >> 20} / {total >> 20} MB")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
+            total = int(r.headers.get("Content-Length") or 0)
+            done, shown = 0, -1
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if total and done * 10 // total != shown:
+                    shown = done * 10 // total
+                    log(f"  {label}: {done >> 20} / {total >> 20} MB")
+    except OSError as e:
+        part.unlink(missing_ok=True)
+        sys.exit(f"{label}: download failed ({e}); check the internet connection and try again")
     if h.hexdigest() != sha256:
         part.unlink(missing_ok=True)
         sys.exit(f"{label}: download is corrupt (SHA-256 {h.hexdigest()}, expected {sha256}); try again")
@@ -135,7 +139,7 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
     obj_dir.mkdir(parents=True, exist_ok=True)
     gen_dir = Path(gen_dir).resolve()
     sdl_inc, sdl_lib = sdl / "include", sdl / "lib" / "x64"
-    base = [clang, f"--target={TARGET}", "-c"] + CFLAGS + os.environ.get("IRC_CFLAGS_EXTRA", "").split()
+    base = [clang, f"--target={TARGET}", "-c"] + CFLAGS
     incs = [f"-I{ROOT / 'runtime'}", f"-I{gen_dir}", f"-I{ROOT / 'third_party' / 'dr_libs'}", f"-I{sdl_inc}"]
 
     jobs_list = []                                   # (source, object, extra flags)
@@ -149,13 +153,14 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
 
     env = dict(os.environ)
     env["PATH"] = str(tc / "bin") + os.pathsep + env.get("PATH", "")
-    counter = [0]
+    counter, lock = [0], threading.Lock()
 
     def run(cmd, what):
-        r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        counter[0] += 1
-        log(f"[{counter[0]}/{total}] {what}")
+        with lock:
+            counter[0] += 1
+            log(f"[{counter[0]}/{total}] {what}")   # same progress format as ninja, read by the GUI
         out = (r.stdout + r.stderr).strip()
         if r.returncode:
             return f"{what}:\n{out}"
@@ -177,8 +182,8 @@ def clang_build(gen_dir, build_dir, sdl, log, jobs=None):
     objs = [str(o) for _s, o, _x in jobs_list if o.name != "flacenc.o"]
     link = [clang, f"--target={TARGET}", "-mwindows", "-static", "-o", str(exe)] + objs + \
            [str(sdl_lib / "SDL3.lib")]
-    rsp = build_dir / "link.rsp"                     # the object list is too long for a command line
-    rsp.write_text(" ".join('"' + a.replace("\\", "/") + '"' for a in link[1:]))
+    rsp = build_dir / "link.rsp"                     # keeps the long object list off the command line
+    rsp.write_text(" ".join('"' + a.replace("\\", "/") + '"' for a in link[1:]), encoding="utf-8")
     err = run([clang, f"@{rsp}"], "Linking C executable IRC.exe")
     err = err or run([clang, f"--target={TARGET}", "-static", "-o", str(build_dir / "irc_flacenc.exe"),
                       str(obj_dir / "flacenc.o")], "Linking C executable irc_flacenc.exe")

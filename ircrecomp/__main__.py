@@ -12,13 +12,13 @@ import platform
 import shutil
 import subprocess
 import sys
-import urllib.request
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CRLF = chr(13) + chr(10)
 SDL_VERSION = "3.4.16"
+SDL_VC_SHA256 = "1a784cb2a5c64d56fe7a62090fe9d242d9865f235e4ea9678f1a6ba4e693e7de"
 KNOWN_EXES = {
     # sha1 of RAL.EXE -> description
 }
@@ -59,26 +59,42 @@ def ensure_sdl_windows():
     sdl = ROOT / "third_party" / f"SDL3-{SDL_VERSION}"
     if (sdl / "cmake" / "SDL3Config.cmake").exists():
         return sdl
+    from .toolchain import download
     url = f"https://github.com/libsdl-org/SDL/releases/download/release-{SDL_VERSION}/SDL3-devel-{SDL_VERSION}-VC.zip"
     log(f"downloading SDL3 {SDL_VERSION} (official release) ...")
     (ROOT / "third_party").mkdir(exist_ok=True)
     zpath = ROOT / "third_party" / f"SDL3-devel-{SDL_VERSION}-VC.zip"
-    urllib.request.urlretrieve(url, zpath)
+    download(url, zpath, SDL_VC_SHA256, log, "SDL3")
     with zipfile.ZipFile(zpath) as z:
         z.extractall(ROOT / "third_party")
     zpath.unlink()
     return sdl
 
 
-def cmake_build(gen_dir, build_dir, jobs=None):
+def windows_compiler(choice="auto"):
+    """'msvc' when chosen or (for 'auto') when the Visual Studio Build Tools are installed,
+    otherwise 'clang': the portable llvm-mingw toolchain, downloaded on first use."""
+    choice = (choice or "auto").lower()
+    if choice == "auto":
+        return "msvc" if find_vcvars() else "clang"
+    return choice
+
+
+def cmake_build(gen_dir, build_dir, jobs=None, compiler="auto"):
     build_dir = Path(build_dir)
     args = ["-S", str(ROOT), "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release", f"-DIRC_GEN_DIR={Path(gen_dir).resolve()}"]
     if platform.system() == "Windows":
         sdl = ensure_sdl_windows()
+        if windows_compiler(compiler) == "clang":
+            from .toolchain import clang_build
+            log("  compiler: clang (llvm-mingw)")
+            return clang_build(gen_dir, build_dir, sdl, log, jobs)
         vcvars = find_vcvars()
         if not vcvars:
-            sys.exit("Visual Studio Build Tools (C++ workload) not found. Install them from "
-                     "https://visualstudio.microsoft.com/visual-cpp-build-tools/ and run again.")
+            sys.exit("Visual Studio Build Tools (C++ workload) not found; use --compiler clang "
+                     "(downloaded automatically) or install them from "
+                     "https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+        log("  compiler: MSVC (Visual Studio Build Tools)")
         args += ["-G", "Ninja", f"-DSDL3_DIR={sdl / 'cmake'}"]
         build_dir.mkdir(parents=True, exist_ok=True)
         script = build_dir.parent / "compile.bat"
@@ -112,7 +128,7 @@ def cmd_build(a):
     gen = work / "gen"
     lift(exe, gen)
     log("[3/5] compiling native executable")
-    built = cmake_build(gen, work / "build")
+    built = cmake_build(gen, work / "build", compiler=a.compiler)
     log("[4/5] compressing CD music to FLAC (lossless, verified bit-exact)")
     enc = built.parent / ("irc_flacenc.exe" if platform.system() == "Windows" else "irc_flacenc")
     for wav in sorted((game / "music").glob("track*.wav")):
@@ -152,6 +168,9 @@ def main():
     b = sub.add_parser("build", help="extract the CD image, recompile and package the game")
     b.add_argument("cue", help="path to the .cue file of the game CD image")
     b.add_argument("--out", default="dist/IRC", help="output directory")
+    b.add_argument("--compiler", choices=["auto", "msvc", "clang"], default=os.environ.get("IRC_COMPILER", "auto"),
+                   help="Windows C compiler: msvc (Visual Studio Build Tools), clang (llvm-mingw, downloaded "
+                        "automatically) or auto = msvc when installed, else clang (default; env IRC_COMPILER)")
     l = sub.add_parser("lift", help="generate C sources from RAL.EXE")
     l.add_argument("exe")
     l.add_argument("gen_dir")

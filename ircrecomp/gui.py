@@ -27,7 +27,6 @@ from . import i18n
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = ROOT / "ircrecomp_gui.json"
-BUILD_TOOLS_URL = "https://visualstudio.microsoft.com/visual-cpp-build-tools/"
 N_STEPS = 5
 NO_WINDOW = 0x08000000 if platform.system() == "Windows" else 0
 
@@ -549,15 +548,23 @@ class App(tk.Tk):
             checks.append((True, "req_py_ok", {}, None))
         except ImportError:
             checks.append((False, "req_py_missing", {}, None))
+        need_gb, disk_key = 2, "req_disk"
         if platform.system() == "Windows":
-            from .__main__ import find_vcvars
-            vc = find_vcvars()
-            checks.append((vc is not None, "req_vc_ok" if vc else "req_vc_missing", {}, None if vc else BUILD_TOOLS_URL))
+            # sem o Visual Studio, o compilador portátil (llvm-mingw) é baixado na primeira recompilação
+            from .__main__ import find_vcvars, windows_compiler
+            from .toolchain import llvm_mingw_ready
+            if windows_compiler(os.environ.get("IRC_COMPILER", "auto")) == "msvc":
+                checks.append((find_vcvars() is not None, "req_vc_ok", {}, None))
+            elif llvm_mingw_ready():
+                checks.append((True, "req_cc_ok", {}, None))
+            else:
+                checks.append((True, "req_cc_auto", {}, None))
+                need_gb, disk_key = 2.5, "req_disk_dl"
         else:
             ok = shutil.which("cmake") and (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang"))
             checks.append((bool(ok), "req_tools", {}, None))
         free = shutil.disk_usage(ROOT).free / 2**30
-        checks.append((free > 2, "req_disk", {"gb": free}, None))
+        checks.append((free > need_gb, disk_key, {"gb": free}, None))
         self.req_checks = checks
         self.req_ok = all(c[0] for c in checks)
         self.render_requirements()
@@ -667,6 +674,7 @@ class App(tk.Tk):
 
     def finished(self, code):
         self.proc = None
+        self.check_requirements()          # o compilador pode ter sido baixado agora
         if code == 0:
             self.progress["value"] = N_STEPS * 100
             self.mark_step(N_STEPS, done=True)

@@ -10,8 +10,12 @@ sobre o [SDL3](https://libsdl.org).
 
 ## Como usar
 
-Requisitos (Windows): Python 3.10+, Visual Studio Build Tools com a carga de trabalho C++
-(já inclui CMake e Ninja). O SDL3 é baixado automaticamente.
+Requisitos (Windows): só o Python 3.10+ e a imagem do CD. Nada de Visual Studio: na primeira
+recompilação o compilador C ([llvm-mingw](https://github.com/mstorsjo/llvm-mingw), clang + lld,
+~180 MB) e o SDL3 são baixados automaticamente das páginas oficiais, com versão fixa e SHA-256
+conferido, e ficam em `third_party\` para as próximas vezes. Se o Visual Studio Build Tools
+(carga de trabalho C++) já estiver instalado, ele é usado no lugar; para escolher, use
+`--compiler clang` ou `--compiler msvc` na linha de comando (ou a variável `IRC_COMPILER`).
 
 ### Com janela (recomendado)
 
@@ -19,7 +23,8 @@ Dê dois cliques em **`IRC Recompilador.bat`**. Na janela:
 
 1. **Escolher…** a imagem do CD (`.cue`; se escolher o `.bin`, o `.cue` ao lado é usado) e a
    pasta onde o jogo será instalado.
-2. Confira os requisitos (verde = ok; o item do Visual Studio vira um link para download se faltar).
+2. Confira os requisitos (verde = ok; o compilador C aparece como "será baixado automaticamente"
+   até a primeira recompilação).
 3. **Recompilar o jogo** — barra de progresso pelas 5 etapas e detalhes ao vivo (~1,5 min).
 4. **▶ Jogar**, **Configurações…** (tela cheia, proporção, resolução do 3D, limite de quadros,
    filtros), **Criar atalho na área de trabalho** e **Abrir pasta**.
