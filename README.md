@@ -33,7 +33,12 @@ usuário (dá para mudar).
 - Como o executável não tem assinatura digital, o Windows SmartScreen pode avisar na primeira vez:
   clique em **Mais informações › Executar assim mesmo**.
 - O compilador e o SDL3 (~420 MB) são baixados na primeira recompilação e ficam em
-  `%LOCALAPPDATA%\IRC Recompilador`, junto com as configurações da janela.
+  `%LOCALAPPDATA%\IRC Recompilador`, junto com as configurações da janela. Se a conexão cair, o
+  download continua de onde parou; se não for possível, a mensagem mostra o link e a pasta para
+  baixar o arquivo pelo navegador.
+- **Conexão lenta, instável ou sem internet?** Baixe **`IRC-Recompilador-full.zip`** (~112 MB) na
+  mesma página: ele já traz o compilador e o SDL3 numa pasta `third_party` ao lado do `.exe`, e a
+  recompilação não baixa nada. Extraia o zip e abra o `IRC-Recompilador.exe` de dentro dele.
 - O `.exe` não contém nada do jogo; ele é gerado por [`tools/make_release.py`](tools/make_release.py).
 
 ### Requisitos
@@ -211,7 +216,13 @@ folder (you can change it).
 - The executable is not digitally signed, so Windows SmartScreen may warn the first time: click
   **More info › Run anyway**.
 - The compiler and SDL3 (~420 MB) are downloaded on the first recompile and kept in
-  `%LOCALAPPDATA%\IRC Recompilador`, together with the window's settings.
+  `%LOCALAPPDATA%\IRC Recompilador`, together with the window's settings. If the connection drops,
+  the download resumes where it stopped; if that is not possible, the message shows the link and
+  the folder to fetch the file with your web browser.
+- **Slow, unstable or no internet connection?** Get **`IRC-Recompilador-full.zip`** (~112 MB) from
+  the same page: it already carries the compiler and SDL3 in a `third_party` folder next to the
+  `.exe`, so recompiling downloads nothing. Extract the zip and open the `IRC-Recompilador.exe`
+  inside it.
 - The `.exe` contains nothing from the game; it is built by [`tools/make_release.py`](tools/make_release.py).
 
 ### Requirements

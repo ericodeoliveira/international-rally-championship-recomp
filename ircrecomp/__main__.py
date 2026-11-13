@@ -98,12 +98,13 @@ def ensure_sdl_windows():
     sdl = THIRD / f"SDL3-{SDL_VERSION}"
     if (sdl / "cmake" / "SDL3Config.cmake").exists():
         return sdl
-    from .toolchain import download
+    from .toolchain import download, sha256_file
     url = f"https://github.com/libsdl-org/SDL/releases/download/release-{SDL_VERSION}/SDL3-devel-{SDL_VERSION}-VC.zip"
-    log(f"downloading SDL3 {SDL_VERSION} (official release) ...")
     THIRD.mkdir(parents=True, exist_ok=True)
     zpath = THIRD / f"SDL3-devel-{SDL_VERSION}-VC.zip"
-    download(url, zpath, SDL_VC_SHA256, log, "SDL3")
+    if not (zpath.exists() and sha256_file(zpath) == SDL_VC_SHA256):   # may have been saved by hand
+        log(f"downloading SDL3 {SDL_VERSION} (official release) ...")
+        download(url, zpath, SDL_VC_SHA256, log, "SDL3")
     with zipfile.ZipFile(zpath) as z:
         z.extractall(THIRD)
     zpath.unlink()
@@ -205,6 +206,8 @@ def cmake_build(gen_dir, build_dir, jobs=None, compiler="auto"):
 
 def cmd_build(a):
     from .install import install
+    if not Path(a.cue).is_file():
+        sys.exit(f"CD image not found: {a.cue} (choose the .cue file of the game's CD image)")
     out = Path(a.out).resolve()
     work = out / "_work"
     game = out / "game"

@@ -1,15 +1,18 @@
 """Build the single-file IRC-Recompilador.exe (Windows) with PyInstaller.
 
     .venv\\Scripts\\python -m pip install pyinstaller
-    .venv\\Scripts\\python tools\\make_release.py          -> build\\release\\IRC-Recompilador.exe
+    .venv\\Scripts\\python tools\\make_release.py   -> build\\release\\IRC-Recompilador.exe
+                                                     and build\\release\\IRC-Recompilador-full.zip
 
-The executable carries the recompiler, the window, Python and the C sources of the runtime
+The full zip adds the C compiler and SDL3 next to the .exe, for players who cannot download
+them. The executable carries the recompiler, the window, Python and the C sources of the runtime
 (compiled on the player's machine). It contains nothing from the game.
 """
 import shutil
 import struct
 import subprocess
 import sys
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -73,6 +76,47 @@ def write_ico(path):
     path.write_bytes(head + entries + b"".join(images))
 
 
+FULL_README = """IRC Recompilador - full package / pacote completo
+=================================================
+
+EN: This package already contains the C compiler (llvm-mingw) and SDL3 in the third_party
+folder, so recompiling needs no downloads. Keep IRC-Recompilador.exe next to third_party and
+open it. Their licenses are in third_party (llvm-mingw: LICENSE.TXT, Apache 2.0 with LLVM
+exception; SDL3: LICENSE.txt, zlib). The game itself is not included.
+
+PT: Este pacote ja traz o compilador C (llvm-mingw) e o SDL3 na pasta third_party, entao a
+recompilacao nao baixa nada. Mantenha o IRC-Recompilador.exe ao lado da pasta third_party e
+abra-o. As licencas deles estao em third_party. O jogo em si nao esta incluido.
+
+https://github.com/ericodeoliveira/international-rally-championship-recomp
+"""
+
+
+def build_full(exe):
+    """IRC-Recompilador-full.zip: the .exe plus the compiler and SDL3 it would download,
+    for players with a slow or filtered connection."""
+    sys.path.insert(0, str(ROOT))
+    from ircrecomp.__main__ import SDL_VERSION, ensure_sdl_windows
+    from ircrecomp.toolchain import LLVM_MINGW_NAME, ensure_llvm_mingw
+    tc = ensure_llvm_mingw(print)                 # the pinned versions, fetched if missing
+    sdl = ensure_sdl_windows()
+    third = ROOT / "third_party"
+    assert tc.parent == third and sdl.parent == third, "expected the toolchain under third_party"
+    skip_sdl = {sdl / "lib" / "x86", sdl / "lib" / "arm64"}   # only 64-bit Windows is built
+    zpath = OUT / f"{NAME}-full.zip"
+    top = NAME
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        z.write(exe, f"{top}/{exe.name}")
+        z.writestr(f"{top}/README.txt", FULL_README)
+        for folder in (tc, sdl):
+            for p in sorted(folder.rglob("*")):
+                if p.is_dir() or any(s in p.parents for s in skip_sdl):
+                    continue
+                z.write(p, f"{top}/third_party/{p.relative_to(third).as_posix()}")
+    print(f"{zpath}  {zpath.stat().st_size / 2**20:.1f} MB  ({LLVM_MINGW_NAME}, SDL3 {SDL_VERSION})")
+    return zpath
+
+
 def main():
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
@@ -94,6 +138,7 @@ def main():
         sys.exit("PyInstaller failed")
     exe = OUT / (NAME + ".exe")
     print(f"{exe}  {exe.stat().st_size / 2**20:.1f} MB")
+    build_full(exe)
 
 
 if __name__ == "__main__":

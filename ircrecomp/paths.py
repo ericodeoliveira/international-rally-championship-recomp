@@ -26,6 +26,10 @@ else:
 RUNTIME = SRC / "runtime"                 # C runtime, compiled on the player's machine
 VENDOR = SRC / "third_party"              # shipped libraries (dr_libs)
 THIRD = DATA / "third_party"              # downloaded on demand: SDL3, llvm-mingw
+# The "full" release (IRC-Recompilador-full.zip) carries the compiler and SDL3 in a
+# third_party folder next to the .exe, so nothing has to be downloaded.
+if FROZEN and (Path(sys.executable).parent / "third_party").is_dir():
+    THIRD = Path(sys.executable).parent / "third_party"
 CACHE = DATA / ("cache" if FROZEN else "build")
 STATE_FILE = DATA / "ircrecomp_gui.json"
 

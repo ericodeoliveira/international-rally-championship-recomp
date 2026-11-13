@@ -6,11 +6,14 @@ unpacked under third_party/ and driven directly from Python, so CMake and Ninja 
 needed either.
 """
 import hashlib
+import http.client
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -51,30 +54,69 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def download(url, dest, sha256, log, label):
-    """Download url to dest, logging progress, and check its SHA-256."""
+def _manual_hint(url, dest, sha256):
+    return (f"\nYou can download it with your web browser instead:\n"
+            f"    {url}\n"
+            f"and save it, keeping its name, as:\n"
+            f"    {dest}\n"
+            f"(SHA-256 {sha256}), then recompile again: it will be used without downloading.")
+
+
+def download(url, dest, sha256, log, label, attempts=8, timeout=60):
+    """Download url to dest, logging progress, and check its SHA-256.
+
+    A stalled or dropped connection does not lose what was already received: the transfer is
+    retried and resumed from the end of the partial file (HTTP Range), with growing pauses
+    between attempts. If it still fails, the message explains how to fetch the file with a
+    web browser and where to put it."""
     part = dest.with_name(dest.name + ".part")
-    h = hashlib.sha256()
-    try:
-        with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
-            total = int(r.headers.get("Content-Length") or 0)
-            done, shown = 0, -1
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        have = part.stat().st_size if part.exists() else 0
+        req = urllib.request.Request(url, headers={"Range": f"bytes={have}-"} if have else {})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                if have and r.status != 206:          # the server ignored the range: start over
+                    have = 0
+                total = have + int(r.headers.get("Content-Length") or 0)
+                if have:
+                    log(f"  {label}: resuming at {have >> 20} MB")
+                shown = -1
+                with open(part, "ab" if have else "wb") as f:
+                    done = have
+                    while True:
+                        chunk = r.read(1 << 20)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        if total and done * 10 // total != shown:
+                            shown = done * 10 // total
+                            log(f"  {label}: {done >> 20} / {total >> 20} MB")
+                if total and done < total:
+                    raise OSError(f"connection closed at {done >> 20} of {total >> 20} MB")
+            last_error = None
+            break
+        except (OSError, http.client.HTTPException) as e:
+            last_error = e
+            if isinstance(e, urllib.error.HTTPError) and e.code == 416:   # partial file already complete or bad
+                if sha256_file(part) == sha256:
+                    last_error = None
                     break
-                f.write(chunk)
-                h.update(chunk)
-                done += len(chunk)
-                if total and done * 10 // total != shown:
-                    shown = done * 10 // total
-                    log(f"  {label}: {done >> 20} / {total >> 20} MB")
-    except OSError as e:
+                part.unlink(missing_ok=True)
+            if attempt < attempts:
+                wait = min(2 ** attempt, 30)
+                log(f"  {label}: connection problem ({e}); trying again in {wait} s "
+                    f"(attempt {attempt + 1} of {attempts}) ...")
+                time.sleep(wait)
+    if last_error is not None:
+        sys.exit(f"{label}: download failed after {attempts} attempts ({last_error})."
+                 + _manual_hint(url, dest, sha256))
+    got = sha256_file(part)
+    if got != sha256:
         part.unlink(missing_ok=True)
-        sys.exit(f"{label}: download failed ({e}); check the internet connection and try again")
-    if h.hexdigest() != sha256:
-        part.unlink(missing_ok=True)
-        sys.exit(f"{label}: download is corrupt (SHA-256 {h.hexdigest()}, expected {sha256}); try again")
+        sys.exit(f"{label}: the download is corrupt (SHA-256 {got}, expected {sha256}); "
+                 f"recompile to try again." + _manual_hint(url, dest, sha256))
     part.replace(dest)
 
 

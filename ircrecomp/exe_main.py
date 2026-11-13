@@ -7,6 +7,7 @@ same .exe again with command-line arguments (`build CUE --out DIR`), exactly lik
 import io
 import os
 import sys
+import traceback
 
 CLI_COMMANDS = {"build", "check", "lift", "analyze"}
 
@@ -28,7 +29,13 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in CLI_COMMANDS:
         _console_streams()
         from ircrecomp.__main__ import main as cli
-        cli()
+        try:
+            cli()
+        except Exception:
+            # report it in the window's details box (stdout), not in a PyInstaller error dialog
+            traceback.print_exc(file=sys.stdout)
+            sys.stdout.flush()
+            sys.exit(1)
     else:
         from ircrecomp.gui import main as gui
         gui()
