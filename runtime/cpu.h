@@ -104,6 +104,8 @@ NORETURN void div_error(CPU *c, uint32_t va);
 NORETURN void noreturn_returned(CPU *c, uint32_t va);
 void shadow_mismatch(CPU *c, uint32_t got);
 void hle_cpuid(CPU *c);
+void hle_port_in(CPU *c, uint32_t port, int size);
+void hle_port_out(CPU *c, uint32_t port, int size);
 double fpu_read80(uint32_t a);
 void fpu_write80(uint32_t a, double v);
 double fpu_round(CPU *c, double v);

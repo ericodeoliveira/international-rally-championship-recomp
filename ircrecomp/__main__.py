@@ -25,6 +25,8 @@ SDL_VERSION = "3.4.16"
 SDL_VC_SHA256 = "1a784cb2a5c64d56fe7a62090fe9d242d9865f235e4ea9678f1a6ba4e693e7de"
 KNOWN_EXES = {
     # sha1 of RAL.EXE -> description
+    "b8709642c750712278f9d5f32fce404f5f0c2ef3": "(Rally 4.81, 9.12.98 - English)",
+    "e09f79f7d98b630f17c7864196b8e4a22d46285d": "(Rally 4.57, 10.9.97 - Brazilian Portuguese)",
 }
 
 

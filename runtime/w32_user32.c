@@ -121,6 +121,51 @@ bool input_pop_key_event(uint8_t *dik, uint8_t *down, uint32_t *time, uint32_t *
     return ok;
 }
 
+/* Keyboard window messages. Rally 4.57 reads the keyboard from WM_KEYDOWN/WM_KEYUP (scan code
+ * in lParam); 4.81 uses a DirectInput keyboard instead, so the messages are only sent while
+ * the game has not opened one, and never twice. */
+bool g_dinput_keyboard;
+
+static uint32_t vk_from_sdl(SDL_Scancode sc)
+{
+    SDL_Keycode k = SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false);
+    if (k >= 'a' && k <= 'z') return (uint32_t)(k - 'a' + 'A');
+    if (k >= '0' && k <= '9') return (uint32_t)k;
+    if (sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12) return 0x70u + (uint32_t)(sc - SDL_SCANCODE_F1);
+    switch (sc) {
+    case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: return 0x0D;
+    case SDL_SCANCODE_ESCAPE: return 0x1B;
+    case SDL_SCANCODE_SPACE: return 0x20;
+    case SDL_SCANCODE_TAB: return 0x09;
+    case SDL_SCANCODE_BACKSPACE: return 0x08;
+    case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: return 0x10;
+    case SDL_SCANCODE_LCTRL: case SDL_SCANCODE_RCTRL: return 0x11;
+    case SDL_SCANCODE_LALT: case SDL_SCANCODE_RALT: return 0x12;
+    case SDL_SCANCODE_PAGEUP: return 0x21;
+    case SDL_SCANCODE_PAGEDOWN: return 0x22;
+    case SDL_SCANCODE_END: return 0x23;
+    case SDL_SCANCODE_HOME: return 0x24;
+    case SDL_SCANCODE_LEFT: return 0x25;
+    case SDL_SCANCODE_UP: return 0x26;
+    case SDL_SCANCODE_RIGHT: return 0x27;
+    case SDL_SCANCODE_DOWN: return 0x28;
+    case SDL_SCANCODE_PRINTSCREEN: return 0x2C;
+    case SDL_SCANCODE_INSERT: return 0x2D;
+    case SDL_SCANCODE_DELETE: return 0x2E;
+    default: return 0;
+    }
+}
+
+static void post_key_message(SDL_Scancode sc, uint8_t dik, bool down, bool alt)
+{
+    if (g_dinput_keyboard || !dik) return;
+    uint32_t vk = vk_from_sdl(sc);
+    uint32_t lparam = 1u | ((uint32_t)(dik & 0x7F) << 16) | ((dik & 0x80) ? 1u << 24 : 0) |
+                      (down ? 0 : (1u << 30) | (1u << 31)) | (alt ? 1u << 29 : 0);
+    bool sys = alt || vk == 0x12;
+    platform_post_message(sys ? (down ? 0x104 : 0x105) : (down ? WM_KEYDOWN : WM_KEYUP), vk, lparam);
+}
+
 /* mouse state for DirectInput */
 int32_t g_mouse_dx, g_mouse_dy, g_mouse_dz;
 uint8_t g_mouse_buttons[4];
@@ -155,6 +200,7 @@ static void handle_event(const SDL_Event *e)
         }
         uint8_t dik = sdl_to_dik(e->key.scancode);
         if (!dik || (down && e->key.repeat)) break;
+        post_key_message(e->key.scancode, dik, down, (e->key.mod & SDL_KMOD_ALT) != 0);
         SDL_LockMutex(g_input_lock);
         g_dik_state[dik] = down ? 0x80 : 0;
         int next = (g_kevt_tail + 1) % KEVT_MAX;
@@ -199,7 +245,9 @@ static void autokeys_tick(void)
         rlog("exit-after reached");
         exit(0);
     }
+    static SDL_Scancode held_sc;
     if (held && now >= release_at) {
+        post_key_message(held_sc, held, false, false);
         SDL_LockMutex(g_input_lock);
         g_dik_state[held] = 0;
         int next = (g_kevt_tail + 1) % KEVT_MAX;
@@ -220,6 +268,8 @@ static void autokeys_tick(void)
     uint8_t dik = sdl_to_dik(sc);
     rlog("autokey %s (dik %02x) at %llu", name, dik, (unsigned long long)now);
     if (!dik) return;
+    post_key_message(sc, dik, true, false);
+    held_sc = sc;
     SDL_LockMutex(g_input_lock);
     g_dik_state[dik] = 0x80;
     int next = (g_kevt_tail + 1) % KEVT_MAX;
@@ -398,7 +448,8 @@ static void u32_MessageBoxA(CPU *c)
 {
     const char *text = gstr(ARG(1)), *cap = gstr(ARG(2));
     rlog("MessageBoxA(%s): %s", cap ? cap : "", text ? text : "");
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, cap ? cap : "", text ? text : "", g_window);
+    if (!g_cfg.exit_after_ms)                 /* scripted test runs (--exit-after) only log it */
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, cap ? cap : "", text ? text : "", g_window);
     hle_return(c, 1, 4);
 }
 
@@ -447,7 +498,11 @@ static void adv_RegSetValueExA(CPU *c)
 
 static void adv_RegCloseKey(CPU *c) { hle_return(c, 0, 1); }
 
+/* synthetic mouse input (4.57 nudges the pointer): nothing to do for the game */
+static void u32_mouse_event(CPU *c) { hle_return(c, 0, 5); }
+
 const HleDef hle_user32[] = {
+    {"USER32", "mouse_event", u32_mouse_event},
     {"USER32", "RegisterClassA", u32_RegisterClassA},
     {"USER32", "CreateWindowExA", u32_CreateWindowExA},
     {"USER32", "GetMessageA", u32_GetMessageA},

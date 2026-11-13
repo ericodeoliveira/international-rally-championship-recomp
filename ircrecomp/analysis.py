@@ -53,7 +53,8 @@ class Analysis:
             v = img.u32(site)
             if not img.is_code(v):
                 continue
-            if not img.is_code(site) and self.plausible_code(v):
+            # a relocated pointer in a data table is strong evidence of code: port I/O allowed
+            if not img.is_code(site) and self.plausible_code(v, allow_io=True):
                 self.data_code_ptrs.add(v)
         self.entries |= self.data_code_ptrs
 
@@ -95,14 +96,15 @@ class Analysis:
         self.entries = saved | work_entries
         self._explore(list(starts))
 
-    def plausible_code(self, va, limit=24):
-        """Linear decode from va; reject if junk shows up before the first unconditional exit."""
+    def plausible_code(self, va, limit=24, allow_io=False):
+        """Linear decode from va; reject if junk shows up before the first unconditional exit.
+        allow_io accepts in/out (Windows 95 programs could poll the VGA ports)."""
         for _ in range(limit):
             ins = self.img.decode(va)
             if ins is None:
                 return False
             m = ins.mnemonic
-            if m in JUNK and not (m in ("pushal", "popal")):
+            if m in JUNK and not (m in ("pushal", "popal")) and not (allow_io and m in ("in", "out")):
                 return False
             if any(ins.reg_name(o.mem.segment) in ("fs", "gs", "ss", "cs", "ds")
                    for o in ins.operands if o.type == X86_OP_MEM and o.mem.segment):

@@ -342,6 +342,32 @@ void hle_cpuid(CPU *c)
     }
 }
 
+/* Port I/O (Windows 95 let programs touch some hardware ports). Rally 4.57 waits for the VGA
+ * vertical retrace by polling port 0x3DA: the status bits flip on every read, so the wait
+ * ends at once and frame pacing is left to the presentation code. */
+void hle_port_in(CPU *c, uint32_t port, int size)
+{
+    static SDL_AtomicInt reads;
+    uint32_t v = 0xFFFFFFFFu;
+    if (port == 0x3DA) v = (SDL_AddAtomicInt(&reads, 1) & 1) ? 0x09 : 0x00;   /* retrace + display off */
+    else {
+        char key[32];
+        snprintf(key, sizeof key, "in%x", port);
+        rlog_once(key, "port input %04x ignored", port);
+    }
+    if (size == 1) c->eax = (c->eax & 0xFFFFFF00u) | (v & 0xFF);
+    else if (size == 2) c->eax = (c->eax & 0xFFFF0000u) | (v & 0xFFFF);
+    else c->eax = v;
+}
+
+void hle_port_out(CPU *c, uint32_t port, int size)
+{
+    (void)c; (void)size;
+    char key[32];
+    snprintf(key, sizeof key, "out%x", port);
+    rlog_once(key, "port output %04x ignored", port);
+}
+
 double fpu_read80(uint32_t a)
 {
     uint64_t mant = mrd64(g_mem, a);
@@ -509,6 +535,32 @@ GuestThread *thread_create(uint32_t entry, uint32_t param, bool suspended)
     char name[32];
     snprintf(name, sizeof name, "guest-%08x", entry);
     t->thread = SDL_CreateThread(thread_main, name, t);
+    return t;
+}
+
+/* A host thread with its own guest CPU context, running runtime code that may call into the
+ * game (e.g. the periodic callbacks of winmm's timeSetEvent). */
+typedef struct { int (*fn)(CPU *c, void *arg); void *arg; GuestThread *t; } NativeStart;
+
+static int SDLCALL native_main(void *p)
+{
+    NativeStart *ns = p;
+    GuestThread *t = ns->t;
+    SDL_SetTLS(&g_tls_thread, t, NULL);
+    if (!setjmp(*(jmp_buf *)t->jb)) t->exit_code = (uint32_t)ns->fn(&t->cpu, ns->arg);
+    t->done = 1;
+    free(ns);
+    return 0;
+}
+
+GuestThread *thread_create_native(int (*fn)(CPU *c, void *arg), void *arg, const char *name)
+{
+    GuestThread *t = thread_alloc();
+    NativeStart *ns = malloc(sizeof *ns);
+    ns->fn = fn;
+    ns->arg = arg;
+    ns->t = t;
+    t->thread = SDL_CreateThread(native_main, name, ns);
     return t;
 }
 

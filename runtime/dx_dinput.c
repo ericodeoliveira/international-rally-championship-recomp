@@ -242,7 +242,8 @@ static void di_CreateDevice(CPU *c)
     const uint8_t *g = g_mem + ARG(1);
     uint32_t out = ARG(2);
     Device *d = calloc(1, sizeof *d);
-    if (!memcmp(g, GUID_SysKeyboard, 16)) d->type = DEV_KEYBOARD;
+    extern bool g_dinput_keyboard;
+    if (!memcmp(g, GUID_SysKeyboard, 16)) { d->type = DEV_KEYBOARD; g_dinput_keyboard = true; }
     else if (!memcmp(g, GUID_SysMouse, 16)) d->type = DEV_MOUSE;
     else {
         int j = joy_index_from_guid(g);

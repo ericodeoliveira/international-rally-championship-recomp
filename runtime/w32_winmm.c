@@ -286,7 +286,101 @@ static void wmm_auxSetVolume(CPU *c)
     hle_return(c, 0, 2);
 }
 
+/* ---- multimedia timers (used by Rally 4.57; 4.81 paces itself with Sleep/GetTickCount) ---- */
+typedef struct {
+    uint32_t id, delay, cb, user;
+    bool periodic;
+    SDL_AtomicInt stop;
+} MMTimer;
+
+#define MAX_MMTIMERS 16
+static MMTimer *g_mmtimers[MAX_MMTIMERS + 1];
+static SDL_Mutex *g_mmtimer_lock;
+
+static int mmtimer_loop(CPU *c, void *arg)
+{
+    MMTimer *t = arg;
+    uint64_t next = SDL_GetTicksNS();
+    do {
+        next += (uint64_t)(t->delay ? t->delay : 1) * 1000000;
+        uint64_t now = SDL_GetTicksNS();
+        if (next > now) SDL_DelayPrecise(next - now);
+        else next = now;                       /* fell behind: no burst of catch-up calls */
+        if (SDL_GetAtomicInt(&t->stop)) break;
+        guest_call(c, t->cb, 5, t->id, 0, t->user, 0, 0);
+    } while (t->periodic && !SDL_GetAtomicInt(&t->stop));
+    return 0;
+}
+
+static void wmm_timeSetEvent(CPU *c)
+{
+    uint32_t delay = ARG(0), cb = ARG(2), user = ARG(3), flags = ARG(4);
+    if (!g_mmtimer_lock) g_mmtimer_lock = SDL_CreateMutex();
+    if (flags & 0x30) {                        /* TIME_CALLBACK_EVENT_SET/PULSE: not used by the game */
+        rlog("timeSetEvent: event callbacks not supported (flags %x)", flags);
+        hle_return(c, 0, 5);
+        return;
+    }
+    SDL_LockMutex(g_mmtimer_lock);
+    uint32_t id = 0;
+    for (uint32_t i = 1; i <= MAX_MMTIMERS && !id; i++) if (!g_mmtimers[i]) id = i;
+    MMTimer *t = id ? calloc(1, sizeof *t) : NULL;
+    if (t) {
+        t->id = id;
+        t->delay = delay;
+        t->cb = cb;
+        t->user = user;
+        t->periodic = (flags & 1) != 0;       /* TIME_PERIODIC */
+        g_mmtimers[id] = t;
+    }
+    SDL_UnlockMutex(g_mmtimer_lock);
+    if (t) {
+        thread_create_native(mmtimer_loop, t, "mmtimer");
+        rlog("timeSetEvent(%u ms, cb=%08x, %s) -> %u", delay, cb, t->periodic ? "periodic" : "one shot", id);
+    }
+    hle_return(c, id, 5);
+}
+
+static void wmm_timeKillEvent(CPU *c)
+{
+    uint32_t id = ARG(0), r = 97;              /* MMSYSERR_INVALPARAM */
+    if (g_mmtimer_lock) {
+        SDL_LockMutex(g_mmtimer_lock);
+        if (id >= 1 && id <= MAX_MMTIMERS && g_mmtimers[id]) {
+            SDL_SetAtomicInt(&g_mmtimers[id]->stop, 1);   /* the thread ends at its next tick */
+            g_mmtimers[id] = NULL;
+            r = 0;
+        }
+        SDL_UnlockMutex(g_mmtimer_lock);
+    }
+    hle_return(c, r, 1);
+}
+
+static void wmm_timeBeginPeriod(CPU *c) { hle_return(c, 0, 1); }
+static void wmm_timeEndPeriod(CPU *c) { hle_return(c, 0, 1); }
+
+static void wmm_timeGetDevCaps(CPU *c)
+{
+    uint32_t p = ARG(0), n = ARG(1);
+    if (p && n >= 8) { wr32(p, 1); wr32(p + 4, 1000000); }
+    hle_return(c, 0, 2);
+}
+
+/* ---- old joystick API (4.57); controllers are not offered through it yet ---- */
+#define JOYERR_UNPLUGGED 167
+static void wmm_joyGetNumDevs(CPU *c) { hle_return(c, 16, 0); }
+static void wmm_joyGetDevCapsA(CPU *c) { hle_return(c, JOYERR_UNPLUGGED, 3); }
+static void wmm_joyGetPosEx(CPU *c) { hle_return(c, JOYERR_UNPLUGGED, 2); }
+
 const HleDef hle_winmm[] = {
+    {"WINMM", "timeSetEvent", wmm_timeSetEvent},
+    {"WINMM", "timeKillEvent", wmm_timeKillEvent},
+    {"WINMM", "timeBeginPeriod", wmm_timeBeginPeriod},
+    {"WINMM", "timeEndPeriod", wmm_timeEndPeriod},
+    {"WINMM", "timeGetDevCaps", wmm_timeGetDevCaps},
+    {"WINMM", "joyGetNumDevs", wmm_joyGetNumDevs},
+    {"WINMM", "joyGetDevCapsA", wmm_joyGetDevCapsA},
+    {"WINMM", "joyGetPosEx", wmm_joyGetPosEx},
     {"WINMM", "mciSendCommandA", wmm_mciSendCommandA},
     {"WINMM", "auxGetNumDevs", wmm_auxGetNumDevs},
     {"WINMM", "auxGetDevCapsA", wmm_auxGetDevCapsA},

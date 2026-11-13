@@ -57,6 +57,7 @@ struct GuestThread {
 GuestThread *thread_current(void);
 GuestThread *thread_main_init(void);
 GuestThread *thread_create(uint32_t entry, uint32_t param, bool suspended);
+GuestThread *thread_create_native(int (*fn)(CPU *c, void *arg), void *arg, const char *name);
 GuestThread *thread_by_handle(uint32_t h);
 NORETURN void thread_exit(CPU *c, uint32_t code);
 void thread_suspend_point(GuestThread *t);

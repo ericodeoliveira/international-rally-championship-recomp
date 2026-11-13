@@ -2,7 +2,7 @@
 import struct
 from pathlib import Path
 
-from .bincue import parse_cue
+from .bincue import LAYOUT, parse_cue, track_spans
 
 BLOCK = 2048
 
@@ -10,21 +10,18 @@ BLOCK = 2048
 class CDImage:
     def __init__(self, cue_path):
         cue_path = Path(cue_path)
-        bin_name, tracks = parse_cue(cue_path)
-        self.bin = cue_path.parent / bin_name
-        data = next(t for t in tracks if t["mode"].startswith("MODE1"))
-        self.raw = data["mode"] == "MODE1/2352"
-        self.start = data["start"]
-        self.f = open(self.bin, "rb")
+        _bin, tracks = parse_cue(cue_path)
+        track_spans(cue_path, tracks)
+        data = next(t for t in tracks if t["mode"] != "AUDIO")
+        self.sector, self.data_at = LAYOUT[data["mode"]]
+        self.offset = data["offset"]
+        self.f = open(data["path_in"], "rb")
 
     def read(self, lba, size):
         out = bytearray()
         n = (size + BLOCK - 1) // BLOCK
         for i in range(n):
-            if self.raw:
-                self.f.seek((self.start + lba + i) * 2352 + 16)
-            else:
-                self.f.seek((self.start * 2352) + (lba + i) * BLOCK)
+            self.f.seek(self.offset + (lba + i) * self.sector + self.data_at)
             out += self.f.read(BLOCK)
         return bytes(out[:size])
 

@@ -468,6 +468,14 @@ class FunctionLifter:
             return [self.reg_write("al", "RD8(ebx + (eax & 0xFFu))")]
         if m == "cpuid":
             return ["SAVE(); hle_cpuid(c); LOAD();"]
+        if m in ("in", "out") and len(ins.operands) == 2:
+            # port I/O, allowed by Windows 95 (Rally 4.57 polls the VGA retrace on port 0x3DA)
+            reg, port = (ops[0], ops[1]) if m == "in" else (ops[1], ops[0])
+            size = {"al": 1, "ax": 2, "eax": 4}.get(ins.reg_name(reg.reg)) if reg.type == X86_OP_REG else None
+            if size:
+                p = f"{port.imm & 0xFF}u" if port.type == X86_OP_IMM else "(edx & 0xFFFFu)"
+                fn = "hle_port_in" if m == "in" else "hle_port_out"
+                return [f"SAVE(); {fn}(c, {p}, {size}); LOAD();"]
         if m == "lahf":
             return [self.reg_write("ah", "(sf << 7) | (zf << 6) | 2u | cf")]
         if m == "sahf":

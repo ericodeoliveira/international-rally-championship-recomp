@@ -73,7 +73,7 @@ static void count_frame(void)
     frames++;
     uint64_t now = SDL_GetTicks();
     if (now - t0 >= 5000) {
-        if (t0 && g_cfg.trace) rlog("video: %.1f frames/s (%dx%dx%d)", frames * 1000.0 / (double)(now - t0), g_mode.width, g_mode.height, g_mode.bpp);
+        if (t0 && (g_cfg.trace || g_cfg.exit_after_ms)) rlog("video: %.1f frames/s (%dx%dx%d)", frames * 1000.0 / (double)(now - t0), g_mode.width, g_mode.height, g_mode.bpp);
         t0 = now;
         frames = 0;
     }
@@ -282,7 +282,21 @@ static void fill_desc(uint32_t d, Surface *s)
     wr32(d + 0x68, s->caps);
 }
 
-static Surface *surface_new(int w, int h, int format, uint32_t caps)
+/* Video memory of the primary flip chain. On a real card the front buffer always starts at
+ * the beginning of video memory and the back buffers follow it, so a new primary surface
+ * gets the same addresses as the one before. Rally 4.57 relies on that: it draws its menu
+ * text through a pointer kept from the 3D detection's surfaces. */
+#define VRAM_SIZE (16u << 20)
+static uint32_t g_vram;
+
+static uint32_t vram_slot(int index, uint32_t bytes)
+{
+    if (!g_vram) g_vram = gmem_alloc(VRAM_SIZE);
+    uint32_t step = (bytes + 0xFFFu) & ~0xFFFu;
+    return (uint32_t)index * step + step <= VRAM_SIZE ? g_vram + (uint32_t)index * step : gmem_alloc(bytes + 64);
+}
+
+static Surface *surface_new_at(int w, int h, int format, uint32_t caps, int vram_index)
 {
     Surface *s = calloc(1, sizeof *s);
     s->w = w;
@@ -291,10 +305,16 @@ static Surface *surface_new(int w, int h, int format, uint32_t caps)
     s->bpp = bpp_of(format);
     s->pitch = ((w * (s->bpp / 8)) + 3) & ~3;
     s->caps = caps;
-    s->mem = gmem_alloc((uint32_t)(s->pitch * h) + 64);
+    s->mem = vram_index >= 0 ? vram_slot(vram_index, (uint32_t)(s->pitch * h))
+                             : gmem_alloc((uint32_t)(s->pitch * h) + 64);
     s->obj = new_obj(vt_surf, s);
     s->obj2 = new_obj(vt_surf2, s);
     return s;
+}
+
+static Surface *surface_new(int w, int h, int format, uint32_t caps)
+{
+    return surface_new_at(w, h, format, caps, -1);
 }
 
 static Surface *surf(uint32_t obj) { return (Surface *)host_of(obj); }
@@ -304,7 +324,12 @@ Surface *dd_surface(uint32_t obj) { return surf(obj); }
 static uint32_t dd_create_surface(uint32_t desc, bool v2)
 {
     uint32_t flags = rd32(desc + 4);
-    uint32_t caps = (flags & DDSD_CAPS) ? rd32(desc + 0x68) : 0;
+    /* ddsCaps is honoured even without DDSD_CAPS, like the DirectDraw of 1997 did: Rally 4.57
+     * creates its primary flip chain with only DDSD_BACKBUFFERCOUNT set */
+    uint32_t caps = rd32(desc + 0x68);
+    if (g_cfg.trace)
+        rlog("CreateSurface desc: size=%u flags=%08x h=%u w=%u backs=%u caps=%08x", rd32(desc), flags,
+             rd32(desc + 8), rd32(desc + 12), rd32(desc + 20), rd32(desc + 0x68));
     int w = (flags & DDSD_WIDTH) ? (int)rd32(desc + 12) : g_mode.width;
     int h = (flags & DDSD_HEIGHT) ? (int)rd32(desc + 8) : g_mode.height;
     int format = g_mode.bpp == 8 ? PF_PAL8 : g_mode.bpp == 16 ? PF_RGB565 : PF_XRGB8888;
@@ -315,7 +340,8 @@ static uint32_t dd_create_surface(uint32_t desc, bool v2)
         format = g_mode.bpp == 8 ? PF_PAL8 : g_mode.bpp == 16 ? PF_RGB565 : PF_XRGB8888;
     }
     if (caps & DDSCAPS_ZBUFFER) format = PF_RGB565;
-    Surface *s = surface_new(w, h, format, caps | (caps & DDSCAPS_PRIMARYSURFACE ? DDSCAPS_VISIBLE | DDSCAPS_FRONTBUFFER : 0));
+    Surface *s = surface_new_at(w, h, format, caps | (caps & DDSCAPS_PRIMARYSURFACE ? DDSCAPS_VISIBLE | DDSCAPS_FRONTBUFFER : 0),
+                                (caps & DDSCAPS_PRIMARYSURFACE) ? 0 : -1);
     if (caps & DDSCAPS_PRIMARYSURFACE) {
         s->primary = true;
         int backs = (flags & DDSD_BACKBUFFERCOUNT) ? (int)rd32(desc + 20) : 0;
@@ -323,7 +349,7 @@ static uint32_t dd_create_surface(uint32_t desc, bool v2)
         s->chain[0] = s;
         s->chain_len = 1 + backs;
         for (int i = 1; i <= backs; i++) {
-            Surface *b = surface_new(w, h, format, (caps & ~(DDSCAPS_PRIMARYSURFACE | DDSCAPS_FRONTBUFFER)) | DDSCAPS_FLIP | (i == 1 ? DDSCAPS_BACKBUFFER : 0));
+            Surface *b = surface_new_at(w, h, format, (caps & ~(DDSCAPS_PRIMARYSURFACE | DDSCAPS_FRONTBUFFER)) | DDSCAPS_FLIP | (i == 1 ? DDSCAPS_BACKBUFFER : 0), i);
             s->chain[i] = b;
             b->chain_len = 0;
         }
