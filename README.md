@@ -5,6 +5,8 @@
 > **Testado com / Tested with:** a versão do jogo disponível em / the version of the game available at
 > <https://www.myabandonware.com/game/international-rally-championship-a66>
 > (imagem de CD `.bin`/`.cue`, `RAL.EXE` 4.81 de 09/12/1998 / CD image, `RAL.EXE` 4.81 from 1998-12-09).
+> Também testado com o CD original brasileiro, *Campeonato Internacional de Rally* (`RAL.EXE` 4.57) /
+> Also tested with the original Brazilian CD (`RAL.EXE` 4.57).
 >
 > O jogo **não** está incluído neste repositório; os direitos dele continuam com os seus detentores.
 > The game is **not** included in this repository; its rights remain with their owners.
@@ -51,6 +53,16 @@ usuário (dá para mudar).
   as próximas vezes. Se o Visual Studio Build Tools (C++) estiver instalado e o clang ainda não, ele é
   usado. Para escolher: `--compiler clang|msvc` ou a variável `IRC_COMPILER`.
 - ~2,5 GB livres na primeira recompilação (compilador incluído); o jogo instalado ocupa ~370 MB.
+
+### Versões do jogo
+
+| Versão | `RAL.EXE` | Situação |
+|---|---|---|
+| Inglesa (*International Rally Championship*) | 4.81, 09/12/1998 | completa |
+| Brasileira (*Campeonato Internacional de Rally*, dublada) | 4.57, 10/09/1997 | completa: menus em português, modo software e 3D em alta resolução |
+
+A versão é detectada sozinha. Imagens de CD em `MODE1` ou `MODE2` (`/2352`, `/2336`, `/2048`), num
+`.bin` só ou com um arquivo por trilha, são aceitas.
 
 ### Como usar
 
@@ -235,6 +247,16 @@ folder (you can change it).
   next time. If Visual Studio Build Tools (C++) is installed and clang is not there yet, it is
   used instead. To choose: `--compiler clang|msvc` or the `IRC_COMPILER` variable.
 - ~2.5 GB free on the first recompile (compiler included); the installed game takes ~370 MB.
+
+### Game versions
+
+| Version | `RAL.EXE` | Status |
+|---|---|---|
+| English (*International Rally Championship*) | 4.81, 1998-12-09 | complete |
+| Brazilian (*Campeonato Internacional de Rally*, dubbed) | 4.57, 1997-09-10 | complete: Portuguese menus, software mode and high-resolution 3D |
+
+The version is detected automatically. CD images in `MODE1` or `MODE2` (`/2352`, `/2336`, `/2048`),
+in a single `.bin` or with one file per track, are accepted.
 
 ### Usage
 
